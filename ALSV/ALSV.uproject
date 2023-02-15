@@ -1,0 +1,13 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "{3A24A980-4B1E-891E-A9B1-FE89FCFB0F12}",
+	"Category": "",
+	"Description": "",
+	"Modules": [
+		{
+			"Name": "ALSV",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}
