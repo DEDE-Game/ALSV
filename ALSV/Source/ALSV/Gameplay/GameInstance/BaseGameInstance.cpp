@@ -16,14 +16,18 @@ UBaseGameInstance::UBaseGameInstance(const FObjectInitializer& ObjectInitializer
 	:UGameInstance(ObjectInitializer)
 {
 #if !WITH_EDITOR
-	float SleepTime = 20;
-	for (int32 i = 0; i < SleepTime; ++i)
+	static bool bEnter = false;
+	if (!bEnter)
 	{
-		FPlatformProcess::Sleep(1);//单位秒
-		DebugLogGameInstance("Already Sleep %ds", i);
+		bEnter = true;
+		float SleepTime = 20;
+		for (int32 i = 0; i < SleepTime; ++i)
+		{
+			FPlatformProcess::Sleep(1);//单位秒
+			DebugLogGameInstance("Already Sleep %ds", i);
+		}
 	}
 #endif
-
 	BaseGameInstanceShowFuncName();
 }
 
