@@ -8,6 +8,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/SpringArmComponent.h"
+#include "Net/UnrealNetwork.h"
 
 //////////////////////////////////////////////////////////////////////////
 // AALSVCharacter
@@ -76,6 +77,40 @@ void AALSVCharacter::SetupPlayerInputComponent(class UInputComponent* PlayerInpu
 	PlayerInputComponent->BindAction("ResetVR", IE_Pressed, this, &AALSVCharacter::OnResetVR);
 }
 
+
+void AALSVCharacter::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	if (GetLocalRole() == ENetRole::ROLE_AutonomousProxy)
+	{
+		++LocalCharacterNumber;
+		ChangeCharacterNumber(LocalCharacterNumber);
+	}
+}
+
+void AALSVCharacter::TickActor(float DeltaSeconds, ELevelTick TickType, FActorTickFunction& ThisTickFunction)
+{
+	Super::TickActor(DeltaSeconds, TickType, ThisTickFunction);
+}
+
+void AALSVCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(AALSVCharacter, TestCharacterNumber);
+}
+
+
+void AALSVCharacter::ChangeCharacterNumber_Implementation(int32 InNumber)
+{
+	TestCharacterNumber = InNumber;
+}
+
+
+void AALSVCharacter::OnRep_CharacterNumberChanged()
+{
+	DebugLogALSVCharacter("OnRep_CharacterNumberChanged AuthorityID:[%d], LocalID[%d]", TestCharacterNumber, LocalCharacterNumber);
+}
 
 void AALSVCharacter::OnResetVR()
 {

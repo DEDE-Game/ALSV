@@ -8,6 +8,22 @@ public class ALSV : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "HeadMountedDisplay" });
+		PublicIncludePaths.AddRange( new string[] {
+			"ALSV"
+			// ... add public include paths required here ...
+		});
+
+        PrivateIncludePaths.AddRange(new string[] {
+            "ALSV"
+			// ... add public include paths required here ...
+		});
+
+        PublicDependencyModuleNames.AddRange(new string[] 
+		{ 
+			"Core", 
+			"CoreUObject", 
+			"Engine", "InputCore", 
+			"HeadMountedDisplay"
+		});
 	}
 }

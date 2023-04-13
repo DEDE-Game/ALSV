@@ -1,7 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "ALSVGameMode.h"
-#include "ALSVCharacter.h"
+#include "Character/ALSVCharacter.h"
 #include "UObject/ConstructorHelpers.h"
 
 AALSVGameMode::AALSVGameMode()

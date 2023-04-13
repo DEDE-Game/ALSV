@@ -1,0 +1,724 @@
+
+
+
+EngineInit()
+ |--FEngineLoop::Init()
+ | |--FEmbeddedCommunication::ForceTick(10);// 强制静默[MinTimeSlice,MaxTimeSlice],单位:ms
+ | |--创建Engine
+ | |--FEmbeddedCommunication::ForceTick(11)// 强制静默[MinTimeSlice,MaxTimeSlice],单位:ms
+ | |--GEngine->ParseCommandline(); //解析命令行参数
+ | |--FEmbeddedCommunication::ForceTick(12); // 强制静默[MinTimeSlice,MaxTimeSlice],单位:ms
+ | |--FEngineLoop.InitTime() // 初始化时间
+ | |--UGameEngine.Init() // 引擎初始化
+ | | |--UEngine::Init();
+ | | | |--FURL::StaticInit(); // 初始化URL
+ | | |--GetGameUserSettings()->LoadSettings();
+ | | |--GetGameUserSettings()->ApplyNonResolutionSettings();
+ | | |--创建UGameInstance
+ | | |--GameInstance->InitializeStandalone();
+ | | | |--UGameInstance.Init()
+ | | | | |--UGameInstance.ReceiveInit() // preinit的额外设置,引擎默认为空
+ | | | | |--App->RegisterConsoleCommandListener(GenericApplication::FOnConsoleCommandListener::CreateUObject(this, &ThisClass::OnConsoleInput));// 注册了命令行回调函数
+ | | | | |--FNetDelegates::OnReceivedNetworkEncryptionToken.BindUObject(this, &ThisClass::ReceivedNetworkEncryptionToken);
+ | | | | |--FNetDelegates::OnReceivedNetworkEncryptionAck.BindUObject(this, &ThisClass::ReceivedNetworkEncryptionAck);
+ | | | | |--FSubsystemCollectionBase.Initialize()
+ | | |--创建UGameViewportClient
+ | | |--UGameViewportClient.Init()
+ | | |--UEngine.GameViewport = ViewportClient
+ | | |--GameInstance->GetWorldContext()->GameViewport = ViewportClient;
+ | | |--UEngine.bIsInitialized = true
+ | |--UEngine.Start() // 引擎初启动
+ | | |--UGameEngine::Start()
+ | | | |--UGameEngine::Start()
+ | | | | |--UGameInstance.StartGameInstance
+ | | | | |--加载地图配置,详情参考FURL解析
+ | | | | |--Engine->Browse(*WorldContext, URL, Error) // DS端切换地图
+ | | | | | |--UEngine.LoadMap()
+ | | | | | | |--FCoreUObjectDelegates::PreLoadMap.Broadcast(URL.Map) // 广播加载地图前事件
+ | | | | | | |--UEngine.ShutdownWorldNetDriver(WorldContext.World()) // 关闭之前world的netdriver
+ | | | | | | |--清理上一个world
+ | | | | | | |--UGameInstance.PreloadContentForURL() // 可以在加载Content之前, 做一些处理操作
+ | | | | | | |--LoadPackage()// 加载world
+ | | | | | | |--NewWorld->SetGameInstance(WorldContext.OwningGameInstance) // 为world设置GameInstance
+ | | | | | | |--GWorld = NewWorld; //设置GWorld
+ | | | | | | |--WorldContext.SetCurrentWorld(NewWorld); // 将world和WorldContext绑定
+ | | | | | | |--WorldContext.World()->WorldType = WorldContext.WorldType; // 设置world的WorldType
+ | | | | | | |--WorldContext.World()->AddToRoot(); // 将world加入root,防止gc
+ | | | | | | |--WorldContext.World()->InitWorld(); // 初始化world
+ | | | | | | |--WorldContext.World()->SetGameMode(URL);; // 初始化World的GameMode
+ | | | | | | | |--UWorld.SetGameMode(URL) // 设置World的GameMode
+ | | | | | | | | |--AuthorityGameMode = GetGameInstance()->CreateGameModeForURL(InURL, this); // 设置UWorld.AuthorityGameMode
+ | | | | | | | | | |--根据配置读取GameMode
+ | | | | | | | | | |--UGameInstance.OverrideGameModeClass() //如果有需求,可以在GameInstance中重置GameMode
+ | | | | | | | | | |--World->SpawnActor<AGameModeBase>(GameClass, SpawnInfo);// 创建GameMod
+ | | | | | | |--WorldContext.World()->Listen(URL) //服务器端进行监听
+ | | | | | | | |--UEngine.CreateNamedNetDriver()
+ | | | | | | | | |--NetDriver.CreateNetDriver_Local() //根据配置创建了NetDriver
+ | | | | | | | |--UNetDriver.SetWorld() // 将NetDriver和World绑定
+ | | | | | | | |--UIpNetDriver.InitListen() //监听端口
+ | | | | | | | | |--UIpNetDriver.InitBase()
+ | | | | | | | | | |--UNetDriver.InitBase()
+ | | | | | | | | | | |--UNetDriver.InitConnectionClass()// 加载NetConnectionClass
+ | | | | | | | | | | |--ConnectionlessHandler.Reset(nullptr); // 重置 PacketHandler
+ | | | | | | | | | | |--// 针对DS, 创建UReplicationDriver, 并且和UIpNetDriver绑定
+ | | | | | | | | | | |--SetReplicationDriver(UReplicationDriver::CreateReplicationDriver(this, URL, GetWorld()));
+ | | | | | | | | | |-- const int32 BindPort = bInitAsClient ? GetClientPort() : URL.Port; // 获取Port
+ | | | | | | | | | |-- // 获取客户端/DS收发buffer大小
+ | | | | | | | | | |--const int32 DesiredRecvSize = bInitAsClient ? ClientDesiredSocketReceiveBufferBytes : ServerDesiredSocketReceiveBufferBytes;
+ | | | | | | | | | |--const int32 DesiredSendSize = bInitAsClient ? ClientDesiredSocketSendBufferBytes : ServerDesiredSocketSendBufferBytes;
+ | | | | | | | | | |--UIpNetDriver.CreateAndBindSocket() //初始化监听端口回调函数
+ | | | | | | | | | | |--// 如果是DS, 只能绑定一个, 如果是客户端, 则可以绑定很多个
+ | | | | | | | | | | |--UIpNetDriver.CreateSocketForProtocol() // 根据协议类型创建Socket, UE4是UDP
+ | | | | | | | | | | | |--SocketSubsystem->CreateUniqueSocket(NAME_DGram, TEXT("Unreal"), ProtocolType) // 设置为IPV4,UDP数据报
+ | | | | | | | | | | |--NewSocket->SetReceiveBufferSize() //设置接收buffer大小
+ | | | | | | | | | | |--NewSocket->SetSendBufferSize() //设置发送buffer大小
+ | | | | | | | | | | |--BindAddr->SetPort(Port); //设置端口号
+ | | | | | | | | | | |-- // 如果Port绑定失败,则尝试该端口号后续端口号, 直到成功或者都尝试了一遍为止. 
+ | | | | | | | | | | |--int32 BoundPort = SocketSubsystem->BindNextPort(NewSocket.Get(), *BindAddr, MaxPortCountToTry + 1, 1);
+ | | | | | | | | | | |--NewSocket->SetNonBlocking() ; //设置非阻塞模式
+ | | | | | | | | |--UIpNetDriver.InitConnectionlessHandler() //初始化监听端口回调函数
+ | | | | | | | | | |--ConnectionlessHandler = MakeUnique<PacketHandler>(&DDoS); // 创建ConnectionlessHandler
+ | | | | | | | | | |--ConnectionlessHandler->Initialize(Handler::Mode::Server, MAX_PACKET_SIZE, true, nullptr, nullptr, NetDriverName);
+ | | | | | | | | | |-- // 使用Engine.EngineHandlerComponentFactory创建StatelessConnectHandlerComponent
+ | | | | | | | | | |--TSharedPtr<HandlerComponent> NewComponent = ConnectionlessHandler->AddHandler(TEXT("Engine.EngineHandlerComponentFactory(StatelessConnectHandlerComponent)"), true);
+ | | | | | | | | | | |-- //解析参数Engine.EngineHandlerComponentFactory(StatelessConnectHandlerComponent)
+ | | | | | | | | | | |-- // 使用Engine.EngineHandlerComponentFactory作为class
+ | | | | | | | | | | |--UClass* FactoryClass = StaticLoadClass(UHandlerComponentFactory::StaticClass(), nullptr, *ComponentName);
+ | | | | | | | | | | |-- // 创建Factory:EngineHandlerComponentFactory
+ | | | | | | | | | | |--Factory = NewObject<UHandlerComponentFactory>(GetTransientPackage(), FactoryClass, *SingletonName);
+ | | | | | | | | | | |-- // 使用EngineHandlerComponentFactory创建Handle
+ | | | | | | | | | | |--ReturnVal = Factory->CreateComponentInstance(ComponentOptions);
+ | | | | | | | | | | | |--MakeShareable(new StatelessConnectHandlerComponent); // 创建StatelessConnectHandlerComponent
+ | | | | | | | | | |-- // 将新创建的NewComponent设置为StatelessConnectComponent, 以后直接使用
+ | | | | | | | | | |--StatelessConnectComponent = StaticCastSharedPtr<StatelessConnectHandlerComponent>(NewComponent);
+ | | | | | | | | | |-- // 将StatelessConnectComponent和IpNetDriver关联
+ | | | | | | | | | |--StatelessConnectComponent.Pin()->SetDriver(this);
+ | | | | | | | | | |--PacketHandler.Initialize() //初始化PacketHandler
+ | | | | | | | | | | |--Component->Initialize(); 
+ | | | | | | | | | | | |--Handler->HandlerComponentInitialized(this);
+ | | | | | | | |--NextSwitchCountdown = NetDriver->ServerTravelPause //设置world的切换延迟时间,给客户端一些时间接收最后的rpc
+ | | | | |--UGameInstance.BroadcastOnStart()
+ | | | | | |--FWorldDelegates::OnStartGameInstance.Broadcast(this); // 广播OnStartGameInstance事件
+ | | | | |
+ | | | | |--UGameInstance.OnStart()
+ | 
+
+
+
+
+UWorld.Tick()
+--UWorld.BroadcastTickDispatch()
+|--UIpNetDriver.TickDispatch()
+| |--UIpNetDriver.ProcessConnectionlessPacket()
+| | |--PacketHandler.IncomingConnectionless()
+| | | |--PacketHandler.Incoming_Internal()
+| | | | |--StatelessConnectHandlerComponent.IncomingConnectionless()
+| | | | | |--StatelessConnectHandlerComponent.ParseHandshakePacket()
+| | | | | |--bChallengeSuccess = FMemory::Memcmp(Cookie, RegenCookie, COOKIE_BYTE_SIZE) == 0; // 服务器校验客户端发来的Cookie
+| | | | | |--LastChallengeSuccessAddress = Address->Clone();
+| | | | | |--int16* CurSequence = (int16*)Cookie;
+| | | | | |--LastServerSequence = *CurSequence & (MAX_PACKETID - 1); // 初始化ServerSequenceID
+| | | | | |--LastClientSequence = *(CurSequence + 1) & (MAX_PACKETID - 1); // 设置ClientSequenceID
+| | | | | |--StatelessConnectHandlerComponent.SendChallengeAck()
+| | |--StatelessConnect->HasPassedChallenge() //StatelessConnectHandlerComponent.HasPassedChallenge()
+| | |--NewObject<UIpConnection>(); // 创建UIpConnection.
+| | |--ReturnVal->InitRemoteConnection(..., USOCK_Open);// 初始化UIpConnection. UIpConnection::InitRemoteConnection()
+| | | |--UIpConnection.InitBase()
+| | | | |--UNetConnection.InitBase()
+| | | | | |--UNetConnection.State=USOCK_Open. // 这里设置State为Open,等待客户端发来NMT_Hello时进行状态检测.
+| | | | |--UNetConnection.InitSendBuffer() //初始化SendBuffer
+| | | | |--UNetConnection.SetClientLoginState(EClientLoginState::LoggingIn) // 设置login状态为LoggingIn
+| | | | |--UNetConnection.SetExpectedClientLoginMsgType(NMT_Hello) // 设置期望消息为:NMT_Hello
+| | |--UNetDriver.AddClientConnection() //添加到ClientConnections中
+| | |--StatelessConnect->ResetChallengeData() //重置LastChallengeSuccessAddress等信息
+ 
+ 
+
+UWorld.Tick()
+--UWorld.BroadcastTickDispatch()
+|--UIpNetDriver.TickDispatch()
+| |--FPacketIterator(UIpNetDriver* InDriver) //或者FPacketIterator::operator++()
+| | |--FPacketIterator.FPacketIterator()
+| | | |--FPacketIterator.AdvanceCurrentPacket()
+| | | | |--FPacketIterator.ReceiveSinglePacket()
+| | | | | |--Driver->GetSocket()->RecvFrom()
+| |--UIpNetDriver.ProcessConnectionlessPacket()
+| | |--PacketHandler.IncomingConnectionless()
+| | | |--PacketHandler.Incoming_Internal()
+| | | | |--StatelessConnectHandlerComponent.IncomingConnectionless()
+| | | | | |--bool bHandshakePacket = !!Packet.ReadBit() && !Packet.IsError();
+| | | | | |--StatelessConnectHandlerComponent.SendRestartHandshakeRequest()
+| | | | | | |--RestartPacket.WriteBit(bHandshakePacket); // 这里是1
+| | | | | | |--RestartPacket.WriteBit(bRestartHandshake);// 这里是1
+| | | | | | |--CapHandshakePacket(RestartPacket); // 消息结束符
+| | | | | | |--Driver->LowLevelSend(ClientAddress, RestartPacket.GetData(), RestartPacket.GetNumBits(), Traits);
+
+
+
+
+| | | | | |--bChallengeSuccess = FMemory::Memcmp(Cookie, RegenCookie, COOKIE_BYTE_SIZE) == 0; // 服务器校验客户端发来的Cookie
+| | | | | |--LastChallengeSuccessAddress = Address->Clone();
+| | | | | |--int16* CurSequence = (int16*)Cookie;
+| | | | | |--LastServerSequence = *CurSequence & (MAX_PACKETID - 1); // 初始化ServerSequenceID
+| | | | | |--LastClientSequence = *(CurSequence + 1) & (MAX_PACKETID - 1); // 设置ClientSequenceID
+| | | | | |--StatelessConnectHandlerComponent.SendChallengeAck()
+| | |--StatelessConnect->HasPassedChallenge() //StatelessConnectHandlerComponent.HasPassedChallenge()
+| | |--NewObject<UIpConnection>(); // 创建UIpConnection.
+| | |--ReturnVal->InitRemoteConnection(..., USOCK_Open);// 初始化UIpConnection. UIpConnection::InitRemoteConnection()
+| | | |--UIpConnection.InitBase()
+| | | | |--UNetConnection.InitBase()
+| | | | | |--UNetConnection.State=USOCK_Open. // 这里设置State为Open,等待客户端发来NMT_Hello时进行状态检测.
+| | | | |--UNetConnection.InitSendBuffer() //初始化SendBuffer
+| | | | |--UNetConnection.SetClientLoginState(EClientLoginState::LoggingIn) // 设置login状态为LoggingIn
+| | | | |--UNetConnection.SetExpectedClientLoginMsgType(NMT_Hello) // 设置期望消息为:NMT_Hello
+| | |--UNetDriver.AddClientConnection() //添加到ClientConnections中
+| | |--StatelessConnect->ResetChallengeData() //重置LastChallengeSuccessAddress等信息
+
+
+
+// 计算DS当前时间和发送ConnectChallenge时间之差
+const double CookieDelta = Driver->GetElapsedTime() - Timestamp;
+// 计算发送ConnectChallenge时间和LastSecretUpdateTimestamp的时间之差
+const double SecretDelta = Timestamp - LastSecretUpdateTimestamp;
+// 从发送ConnectChallenge的时间到现在所间隔的时间必须在MAX_COOKIE_LIFETIME之内
+const bool bValidCookieLifetime = CookieDelta >= 0.0 && (MAX_COOKIE_LIFETIME - CookieDelta) > 0.0;
+// 如果SecretId==ActiveSecret, 那么SecretDelta一定不会比0小, 如果如果SecretId!=ActiveSecret, SecretDelta一定不会大于0.
+const bool bValidSecretIdTimestamp = (SecretId == ActiveSecret) ? (SecretDelta >= 0.0) : (SecretDelta <= 0.0);
+
+
+
+客户端接收到RestartHandShake请求
+UWorld.Tick()
+--UWorld.BroadcastTickDispatch()
+|--UIpNetDriver.TickDispatch()
+| |--FPacketIterator(UIpNetDriver* InDriver) //或者FPacketIterator::operator++()
+| | |--FPacketIterator.FPacketIterator()
+| | | |--FPacketIterator.AdvanceCurrentPacket()
+| | | | |--FPacketIterator.ReceiveSinglePacket()
+| | | | | |--Driver->GetSocket()->RecvFrom()
+| |--UNetConnection.ReceivedRawPacket()
+| | |--PacketHandler.Incoming()
+| | | |--PacketHandler.Incoming_Internal(uint8* Packet, int32 CountBytes, bool bConnectionless, const TSharedPtr<const FInternetAddr>& Address)
+| | | | |--PacketHandler::Incoming_Internal(FReceivedPacketView& PacketView)
+| | | | | |--StatelessConnectHandlerComponent.Incoming()
+| | | | | | |--StatelessConnectHandlerComponent.ParseHandshakePacket() 
+| | | | | | | |-- 解析出bRestartHandshake为true, 需要重新握手
+| | | | | | |-- // AuthorisedCookie必须不为空
+| | | | | | |--bool bValidAuthCookie = FMemory::Memcmp(AuthorisedCookie, ZeroCookie, COOKIE_BYTE_SIZE) != 0;
+| | | | | | |-- // 客户端发送最后消息再过10s后, 才能开始重新握手, server可能重发很多次restart
+| | | | | | |--bPassedDelayCheck = (CurrentTime - LastClientSendTimestamp) > 10.0;
+| | | | | | |-- // 其他条件检测
+| | | | | | |--double LastRestartPacketTimeDiff = CurrentTime - LastRestartPacketTimestamp;
+| | | | | | |--double LastNetConnPacketTimeDiff = CurrentTime - LastNetConnPacketTime;
+| | | | | | |-- // 如果满足条件会设置state为UnInitialized, 并开始握手
+| | | | | | |-- SetState(Handler::Component::State::UnInitialized);
+| | | | | | |-- NotifyHandshakeBegin();
+| | | | | | | |--// 和正常握手不同, 重新握手要将bRestartHandshake设置为true
+| | | | | | | |--bRestartHandshake = true;
+
+
+//堆栈
+UWorld.Tick()
+--UWorld.BroadcastTickDispatch()
+|--UIpNetDriver.TickDispatch()
+| |--FPacketIterator(UIpNetDriver* InDriver) //或者FPacketIterator::operator++()
+| | |--FPacketIterator.FPacketIterator()
+| | | |--FPacketIterator.AdvanceCurrentPacket()
+| | | | |--FPacketIterator.ReceiveSinglePacket()
+| | | | | |--Driver->GetSocket()->RecvFrom()
+| |--UIpNetDriver.ProcessConnectionlessPacket()
+| | |--PacketHandler.IncomingConnectionless()
+| | | |--PacketHandler.Incoming_Internal()
+| | | | |--StatelessConnectHandlerComponent.IncomingConnectionless()
+| | | | | |--StatelessConnectHandlerComponent.ParseHandshakePacket()
+| | | | | |--FMemory::Memcpy(AuthorisedCookie, OrigCookie, UE_ARRAY_COUNT(AuthorisedCookie));
+| | | | | |-- // 重新握手情况下, 后续会使用, 针对重新握手情况, 这里是true
+| | | | | |--bRestartedHandshake = bRestartHandshake;
+| | | | | |--LastChallengeSuccessAddress = Address->Clone();
+| | | | | |--StatelessConnectHandlerComponent.SendChallengeAck()
+| | |--StatelessConnect->HasPassedChallenge() 
+| | | |--// 提取bRestartedHandshake变量, 用于判断是否是重新握手
+| | | |--bOutRestartedHandshake = bRestartedHandshake;
+| | | |--判断地址是否是刚才解析成功的地址, 即:LastChallengeSuccessAddress
+| | |-- 遍历UNetDriver.ClientConnections中所有connection,检测cookie是否一致.
+| | |-- 如果cookie相同, 则直接拿来重新使用.
+| | |-- 如果没有找到旧的 则创建新的
+| | |--   NewObject<UIpConnection>(); // 创建UIpConnection.
+| | |--   ReturnVal->InitRemoteConnection(..., USOCK_Open);// 初始化UIpConnection. UIpConnection::InitRemoteConnection()
+| | | |--UIpConnection.InitBase()
+| | | | |--UNetConnection.InitBase()
+| | | | | |--UNetConnection.State=USOCK_Open. // 这里设置State为Open,等待客户端发来NMT_Hello时进行状态检测.
+| | | | |--UNetConnection.InitSendBuffer() //初始化SendBuffer
+| | | | |--UNetConnection.SetClientLoginState(EClientLoginState::LoggingIn) // 设置login状态为LoggingIn
+| | | | |--UNetConnection.SetExpectedClientLoginMsgType(NMT_Hello) // 设置期望消息为:NMT_Hello
+| | |--UNetDriver.AddClientConnection() //添加到ClientConnections中
+| | |--StatelessConnect->ResetChallengeData() //重置LastChallengeSuccessAddress等信息
+
+	if (!IsInternalAck() && !bIsReinjectingDelayedPackets)
+	{
+		if (PacketSimulationSettings.PktIncomingLoss)
+		{
+			if (FMath::FRand() * 100.f < PacketSimulationSettings.PktIncomingLoss)
+			{
+				UE_LOG(LogNet, VeryVerbose, TEXT("Dropped incoming packet at %f"), FPlatformTime::Seconds());
+				return;
+			}
+
+		}
+		if (PacketSimulationSettings.PktIncomingLagMin > 0 || PacketSimulationSettings.PktIncomingLagMax > 0)
+		{
+			// ExtraLagInSec goes from [PktIncomingLagMin, PktIncomingLagMax]
+			const double LagVarianceInMS = FMath::FRand() * double(PacketSimulationSettings.PktIncomingLagMax - PacketSimulationSettings.PktIncomingLagMin);
+			const double ExtraLagInSec = (double(PacketSimulationSettings.PktIncomingLagMin) + LagVarianceInMS) / 1000.f;
+
+			FDelayedIncomingPacket DelayedPacket;
+			DelayedPacket.PacketData = MakeUnique<FBitReader>(Reader);
+			DelayedPacket.ReinjectionTime = FPlatformTime::Seconds() + ExtraLagInSec;
+
+			DelayedIncomingPackets.Emplace(MoveTemp(DelayedPacket));
+
+			UE_LOG(LogNet, VeryVerbose, TEXT("Delaying incoming packet for %f seconds"), ExtraLagInSec);
+			return;
+		}
+	}
+
+
+
+
+
+
+在下一帧tick时候进行UPendingNetGame的初始化
+FEngineLoop.Tick()
+--UGameEngine.Tick()    
+|--UEngine::TickWorldTravel()    
+| |--UEngine.Browse()
+| | |--WorldContext.PendingNetGame = NewObject<UPendingNetGame>();
+| | |--WorldContext.PendingNetGame->Initialize(URL); //-V595
+| | |--WorldContext.PendingNetGame->InitNetDriver(); //-V595
+| | | |--GEngine->CreateNamedNetDriver()
+| | | |--NetDriver = GEngine->FindNamedNetDriver(this, NAME_PendingNetDriver);
+| | | |--NetDriver->InitConnect()
+| | | | |--UIpNetDriver::InitBase()
+| | | | | |--UNetConnection::InitBase()
+| | | | | | |--UNetConnection::SetConnectionId()
+| | | | | | |  --UNetConnection::InitHandler()
+| | | | | |--UIpNetDriver::CreateAndBindSocket()
+| | | | | |--NewSocket->SetReceiveBufferSize();
+| | | | | |  --NewSocket->SetSendBufferSize();
+| | | | | |--UIpNetDriver::SetSocketAndLocalAddress()
+| | | | |--ServerConnection = NewObject<UNetConnection>(GetTransientPackage(), NetConnectionClass);
+| | | | |--ServerConnection->InitLocalConnection(this, Socket, ConnectURL, USOCK_Pending);
+| | | | |--// 创建ServerConnection中的Channel
+| | | | |--UNetDriver::CreateInitialClientChannels()//指定创建客户端Channels
+| | | | | |--// 客户端channel的创建类型都是EChannelCreateFlags::OpenedLocally
+| | | | | |--ServerConnection->CreateChannelByName(ChannelDef.ChannelName, EChannelCreateFlags::OpenedLocally, ChannelDef.StaticChannelIndex);
+| | | | | | |--UChannel* Channel = Driver->GetOrCreateChannelByName(ChName);
+| | | | | | |--Channel->Init( this, ChIndex, CreateFlags );
+| | | | | | |--OpenChannels.Add(Channel);
+| | | |-- // 设置回调函数, 发送成功后, 调用UPendingNetGame::SendInitialJoin
+| | | |--ServerConn->Handler->BeginHandshaking()
+| | | | |--CurComponent.NotifyHandshakeBegin() //StatelessConnectHandlerComponent::NotifyHandshakeBegin()
+| | | | | |--StatelessConnectHandlerComponent::NotifyHandshakeBegin() //拼接HandShake消息
+| | | | | | |--ServerConn->Driver->IsNetResourceValid() // 此处返回false, 发送失败.
+由于UIpNetDriver.ServerConnection.Socket是nullptr,此处发送失败.
+
+
+
+
+
+//DS处理ChallengeResponse,回复ChallengeAck
+UWorld.Tick()
+--UWorld.BroadcastTickDispatch()
+|--UIpNetDriver.TickDispatch()
+| |--FPacketIterator(UIpNetDriver* InDriver) //或者FPacketIterator::operator++()
+| | |--FPacketIterator.FPacketIterator()
+| | | |--FPacketIterator.AdvanceCurrentPacket()
+| | | | |--FPacketIterator.ReceiveSinglePacket()
+| | | | | |--Driver->GetSocket()->RecvFrom()
+| |--UIpNetDriver.ProcessConnectionlessPacket()
+| | |--PacketHandler.IncomingConnectionless()
+| | | |--PacketHandler.Incoming_Internal()
+| | | | |--StatelessConnectHandlerComponent.IncomingConnectionless()
+| | | | | |--StatelessConnectHandlerComponent.ParseHandshakePacket()
+| | | | | |--bChallengeSuccess = FMemory::Memcmp(Cookie, RegenCookie, COOKIE_BYTE_SIZE) == 0; // 服务器校验客户端发来的Cookie
+| | | | | |--LastChallengeSuccessAddress = Address->Clone();
+| | | | | |--int16* CurSequence = (int16*)Cookie;
+| | | | | |--LastServerSequence = *CurSequence & (MAX_PACKETID - 1); // 初始化ServerSequenceID
+| | | | | |--LastClientSequence = *(CurSequence + 1) & (MAX_PACKETID - 1); // 设置ClientSequenceID
+| | | | | |--StatelessConnectHandlerComponent.SendChallengeAck()
+| | |--StatelessConnect->HasPassedChallenge() //StatelessConnectHandlerComponent.HasPassedChallenge()
+| | |--NewObject<UIpConnection>(); // 创建UIpConnection.
+| | |--ReturnVal->InitRemoteConnection(..., USOCK_Open);// 初始化UIpConnection. UIpConnection::InitRemoteConnection()
+| | | |--UIpConnection.InitBase()
+| | | | |--UNetConnection.InitBase()
+| | | | | |--UNetConnection.State=USOCK_Open. // 这里设置State为Open,等待客户端发来NMT_Hello时进行状态检测.
+| | | | |--UNetConnection.InitSendBuffer() //初始化SendBuffer
+| | | | |--UNetConnection.SetClientLoginState(EClientLoginState::LoggingIn) // 设置login状态为LoggingIn
+| | | | |--UNetConnection.SetExpectedClientLoginMsgType(NMT_Hello) // 设置期望消息为:NMT_Hello
+| | |--UNetDriver.AddClientConnection() //添加到ClientConnections中
+| | | |--UNetDriver.CreateInitialServerChannels()
+| | | | |--//DS在这里创建ServerChannel, 并且Channel的创建类型是EChannelCreateFlags::OpenedLocally
+| | | | |--ClientConnection->CreateChannelByName(ChannelDef.ChannelName, EChannelCreateFlags::OpenedLocally, ChannelDef.StaticChannelIndex);
+| | |--StatelessConnect->ResetChallengeData() //重置LastChallengeSuccessAddress等信息
+
+
+
+
+
+UWorld.Tick()
+--UWorld.BroadcastTickDispatch()
+|--UIpNetDriver.TickDispatch()
+| |--FPacketIterator(UIpNetDriver* InDriver) //或者FPacketIterator::operator++()
+| | |--FPacketIterator.FPacketIterator()
+| | | |--FPacketIterator.AdvanceCurrentPacket()
+| | | | |--FPacketIterator.ReceiveSinglePacket()
+| | | | | |--Driver->GetSocket()->RecvFrom()
+| |--UNetConnection.ReceivedRawPacket()
+| | |--const ProcessedPacket UnProcessedPacket = Handler->Incoming(Data, Count);
+| | | |--PacketHandler.Incoming_Internal()
+| | | | |--// 填充地址
+| | | | |--PacketView.Address = Address;
+| | | | |--// 是否是握手包,这里为false
+| | | | |--PacketView.Traits.bConnectionlessPacket = bConnectionless;
+| | | | |--EIncomingResult Result = Incoming_Internal(PacketView);
+| | | | | |-- 这个包刚从Socket接收过来, 是以字节为单位, 经过这里的计算, 可以计算出该包真实bit数量
+| | | | | |-- 对这块代码的讲解, 见详述-计算包bit数
+| | | | | |--StatelessConnectHandlerComponent.Incoming()
+| | | | | | |--首bit不是1, 并且是DS端, 直接将地址情况, 因为LastChallengeSuccessAddress是临时数据, 为了验证PassedChallenge的
+| | | | | | |--其实, 连接包走到这里任何实质性修改也不会做的, 该函数主要是在握手期间客户端使用.
+| | | | | |--PacketHandler.ReplaceIncomingPacket()
+| | | | | | |--将收到的包存储在PacketHandler.IncomingPacket中. 这里还要去掉已经处理的头部.
+| | | | | |--// 将处理完成的IncomingPacket存放在PacketView.DataView中, 并且将状态置为ECountUnits::Bits
+| | | | | |--PacketView.DataView = {IncomingPacket.GetData(), (int32)IncomingPacket.GetBitsLeft(), ECountUnits::Bits};
+| | |--这里还要去掉已经处理过包的尾部, TODO: 为什么呢?
+| | |--UNetConnection.ReceivedPacket()
+| | | |-- // 处理包自定义的lag和loss(仅用于测试)
+| | | |-- // 处理直方图
+
+
+
+
+//UE4网络--详细分析FNetControlMessage<NMT_Hello>::Send
+UWorld.Tick()
+--UWorld.BroadcastTickDispatch()
+|--UIpNetDriver.TickDispatch()
+| |--FPacketIterator(UIpNetDriver* InDriver) //或者FPacketIterator::operator++()
+| | |--FPacketIterator.FPacketIterator()
+| | | |--FPacketIterator.AdvanceCurrentPacket()
+| | | | |--FPacketIterator.ReceiveSinglePacket()
+| | | | | |--Driver->GetSocket()->RecvFrom()
+| |--UNetConnection.ReceivedRawPacket()
+| | |--PacketHandler.Incoming_Internal()
+| | | |--PacketHandler.Incoming_Internal()
+| | | | |--StatelessConnectHandlerComponent.Incoming()
+| | | | | |--HandlerComponent.Initialized()
+| | | | | | |--PacketHandler.HandlerComponentInitialized()
+| | | | | | | |--PacketHandler.HandlerInitialized()
+| | | | | | | | |--// 详情查看:UE4网络---UPendingNetGame
+| | | | | | | | |--HandshakeCompleteDel.ExecuteIfBound()
+| | | | | | | | | |--UPendingNetGame.SendInitialJoin() 
+| | | | | | | | | | |--FNetControlMessage<NMT_Hello>::Send(ServerConn, IsLittleEndian, LocalNetworkVersion, EncryptionToken);
+| | | | | | | | | | | |--UControlChannel.SendBunch()
+| | | | | | | | | | | | |--UChannel.SendBunch()
+| | | | | | | | | | | | | |--// 将bunch放入UChannel.SendBunch.OutgoingBunches中, 
+| | | | | | | | | | | | | |--// 后续会清理UChannel.SendBunch.OutgoingBunches中的bunch
+| | | | | | | | | | | | | |--OutgoingBunches.Add(Bunch);
+| | | | | | | | | | | | | |--// This handles queuing reliable bunches into the ack list
+| | | | | | | | | | | | | |--// UChannel.PrepBunch()
+| | | | | | | | | | | | | |--FOutBunch *ThisOutBunch = PrepBunch(NextBunch, OutBunch, Merge); 
+| | | | | | | | | | | | | | |--Bunch->Next = NULL;
+| | | | | | | | | | | | | | |--Bunch->ChSequence = ++Connection->OutReliable[ChIndex];
+| | | | | | | | | | | | | | |--UChannel.NumOutRec++;
+| | | | | | | | | | | | | | |-- 将新bunch放入UChannel.OutRec链表的尾部
+| | | | | | | | | | | | | | |-- Connection->LastOutBunch = OutBunch;
+| | | | | | | | | | | | | |--UChannel.SendRawBunch()
+| | | | | | | | | | | | | | |--OutBunch->ReceivedAck = 0;
+| | | | | | | | | | | | | | |-- // UNetConnection.SendRawBunch()
+| | | | | | | | | | | | | | |--int32 PacketId = Connection->SendRawBunch(*OutBunch, Merge, Collector);
+| | | | | | | | | | | | | | | |--UNetDriver.OutBunches++
+| | | | | | | | | | | | | | | |--UNetDriver.OutTotalBunches++
+| | | | | | | | | | | | | | | |--UNetConnection.TimeSensitive = 1;
+| | | | | | | | | | | | | | | |--//UNetConnection.SendBunchHeader是所有Bunch共用的Header内存,它是暂时的,用完即失效, 每次填充后立即与Bunch组合,一同放入SendBuffer中.
+| | | | | | | | | | | | | | | |--填充SendBunchHeader
+| | | | | | | | | | | | | | | |--填充SendBufferHeader(即,填充PacketHeader,见详解填充SendBufferHeader)
+| | | | | | | | | | | | | | | |--UNetConnection.PrepareWriteBitsToSendBuffer()
+| | | | | | | | | | | | | | | | |--//如果填充了PacketHeader则直接返回,否则执行如下填充流程
+| | | | | | | | | | | | | | | | |--UNetConnection.WritePacketHeader()
+| | | | | | | | | | | | | | | | | |--FNetPacketNotify.WriteHeader()
+| | | | | | | | | | | | | | | | | | |--SequenceNumberT::SequenceT Seq = OutSeq.Get();
+| | | | | | | | | | | | | | | | | | |--SequenceNumberT::SequenceT AckedSeq = InAckSeq.Get();
+| | | | | | | | | | | | | | | | | | |--生成32bit的PackedHeader
+| | | | | | | | | | | | | | | | | | |--uint32 PackedHeader = FPackedHeader::Pack(Seq, AckedSeq, WrittenHistoryWordCount - 1);
+| | | | | | | | | | | | | | | | | | | |--uint32 Packed = 0u;
+| | | | | | | | | | | | | | | | | | | |--Packed |= Seq.Get() << SeqShift;
+| | | | | | | | | | | | | | | | | | | |--Packed |= AckedSeq.Get() << AckSeqShift;
+| | | | | | | | | | | | | | | | | | | |--Packed |= HistoryWordCount & HistoryWordCountMask;
+| | | | | | | | | | | | | | | | | | | |--return Packed;
+| | | | | | | | | | | | | | | | | | |--Writer << PackedHeader; //将uint32序列化到sendbuffer中
+| | | | | | | | | | | | | | | | | | |--InSeqHistory.Write(Writer, WrittenHistoryWordCount);
+| | | | | | | | | | | | | | | | |--UNetConnection.WriteDummyPacketInfo()
+| | | | | | | | | | | | | | | | | |--Writer.WriteBit(bHasPacketInfoPayload);
+| | | | | | | | | | | | | | | | | |--// 如果payload有效
+| | | | | | | | | | | | | | | | | |--Writer.SerializeBits(&DummyJitterClockTime, NetConnectionHelper::NumBitsForJitterClockTimeInHeader);
+| | | | | | | | | | | | | | | | | |--Writer.WriteBit(bHasServerFrameTime);
+| | | | | | | | | | | | | | | | | |--if (bHasServerFrameTime && Driver->IsServer())
+| | | | | | | | | | | | | | | | | |--    Writer << DummyFrameTimeByte;
+| | | | | | | | | | | | | | | | |--UNetConnection.WriteBitsToSendBufferInternal()
+| | | | | | | | | | | | | | | | | |--SendBuffer填充bufferheader
+| | | | | | | | | | | | | | | | | |--SendBuffer填充bunch
+| | | | | | | | | | | | | | |--清理OutgoingBunches中的所有bunch.在这之后,bunch无效,不能再进行使用了.
+| | | | | | | | | | |--ServerConn->FlushNet();
+| | | | | | | | | | | |--Handler->OutgoingHigh(SendBuffer); //PacketHandler.OutgoingHigh()
+| | | | | | | | | | | |--SendBuffer.WriteBit(1); //Write the UNetConnection-level termination bit 
+| | | | | | | | | | | |--UNetConnection.WritePacketHeader()
+| | | | | | | | | | | | |--FNetPacketNotify.WriteHeader()
+| | | | | | | | | | | | | |--SequenceNumberT::SequenceT Seq = OutSeq.Get();
+| | | | | | | | | | | | | |--SequenceNumberT::SequenceT AckedSeq = InAckSeq.Get();
+| | | | | | | | | | | | | |--生成32bit的PackedHeader
+| | | | | | | | | | | | | |--uint32 PackedHeader = FPackedHeader::Pack(Seq, AckedSeq, WrittenHistoryWordCount - 1);
+| | | | | | | | | | | | | | |--uint32 Packed = 0u;
+| | | | | | | | | | | | | | |--Packed |= Seq.Get() << SeqShift;
+| | | | | | | | | | | | | | |--Packed |= AckedSeq.Get() << AckSeqShift;
+| | | | | | | | | | | | | | |--Packed |= HistoryWordCount & HistoryWordCountMask;
+| | | | | | | | | | | | | | |--return Packed;
+| | | | | | | | | | | | | |--Writer << PackedHeader; //将uint32序列化到sendbuffer中
+| | | | | | | | | | | | | |--InSeqHistory.Write(Writer, WrittenHistoryWordCount);
+| | | | | | | | | | | |--UNetConnection.WriteFinalPacketInfo()
+| | | | | | | | | | | | |--Writer.WriteBit(bHasPacketInfoPayload);
+| | | | | | | | | | | | |--// 如果payload有效
+| | | | | | | | | | | | |--Writer.SerializeBits(&DummyJitterClockTime, NetConnectionHelper::NumBitsForJitterClockTimeInHeader);
+| | | | | | | | | | | | |--Writer.WriteBit(bHasServerFrameTime);
+| | | | | | | | | | | | |--if (bHasServerFrameTime && Driver->IsServer())
+| | | | | | | | | | | | |--    Writer << DummyFrameTimeByte;
+| | | | | | | | | | | |--UNetConnection.LowLevelSend() // 真正发送数据包的地方
+
+
+//DS处理ChallengeResponse,回复ChallengeAck
+UWorld.Tick()
+--UWorld.BroadcastTickDispatch()
+|--UIpNetDriver.TickDispatch()
+| |--FPacketIterator(UIpNetDriver* InDriver) //或者FPacketIterator::operator++()
+| | |--FPacketIterator.FPacketIterator()
+| | | |--FPacketIterator.AdvanceCurrentPacket()
+| | | | |--FPacketIterator.ReceiveSinglePacket()
+| | | | | |--Driver->GetSocket()->RecvFrom()
+| |--UIpNetDriver.ProcessConnectionlessPacket()
+| | |--PacketHandler.IncomingConnectionless()
+| | | |--PacketHandler.Incoming_Internal()
+| | | | |--StatelessConnectHandlerComponent.IncomingConnectionless()
+| | | | | |--StatelessConnectHandlerComponent.ParseHandshakePacket()
+| | | | | |--bChallengeSuccess = FMemory::Memcmp(Cookie, RegenCookie, COOKIE_BYTE_SIZE) == 0; // 服务器校验客户端发来的Cookie
+| | | | | |--LastChallengeSuccessAddress = Address->Clone();
+| | | | | |--int16* CurSequence = (int16*)Cookie;
+| | | | | |--LastServerSequence = *CurSequence & (MAX_PACKETID - 1); // 初始化ServerSequenceID
+| | | | | |--LastClientSequence = *(CurSequence + 1) & (MAX_PACKETID - 1); // 设置ClientSequenceID
+| | | | | |--StatelessConnectHandlerComponent.SendChallengeAck()
+| | |--StatelessConnect->HasPassedChallenge() //StatelessConnectHandlerComponent.HasPassedChallenge()
+| | |--NewObject<UIpConnection>(); // 创建UIpConnection.
+| | |--ReturnVal->InitRemoteConnection(..., USOCK_Open);// 初始化UIpConnection. UIpConnection::InitRemoteConnection()
+| | | |--UIpConnection.InitBase()
+| | | | |--UNetConnection.InitBase()
+| | | | | |--UNetConnection.State=USOCK_Open. // 这里设置State为Open,等待客户端发来NMT_Hello时进行状态检测.
+| | | | |--UNetConnection.InitSendBuffer() //初始化SendBuffer
+| | | | |--UNetConnection.SetClientLoginState(EClientLoginState::LoggingIn) // 设置login状态为LoggingIn
+| | | | |--UNetConnection.SetExpectedClientLoginMsgType(NMT_Hello) // 设置期望消息为:NMT_Hello
+| | |--StatelessConnect->GetChallengeSequence(ServerSequence, ClientSequence);
+| | |--ReturnVal->InitSequence(ClientSequence, ServerSequence);
+| | | |--InPacketId = IncomingSequence - 1;
+| | | |--OutPacketId = OutgoingSequence;
+| | | |--OutAckPacketId = OutgoingSequence - 1;
+| | | |--LastNotifiedPacketId = OutAckPacketId;
+| | | |--InitInReliable = IncomingSequence & (MAX_CHSEQUENCE - 1);
+| | | |--InitOutReliable = OutgoingSequence & (MAX_CHSEQUENCE - 1);
+| | | |--InReliable.Init(InitInReliable, InReliable.Num());
+| | | |--OutReliable.Init(InitOutReliable, OutReliable.Num());
+| | | |--PacketNotify.Init(InPacketId, OutPacketId);
+| | | | |--InSeqHistory.Reset();
+| | | | |--InSeqHistory.Reset();
+| | | | |--InSeq = InitialInSeq;
+| | | | |--InAckSeq = InitialInSeq;
+| | | | |--InAckSeqAck = InitialInSeq;
+| | | | |--OutSeq = InitialOutSeq;
+| | | | |--OutAckSeq = SequenceNumberT(InitialOutSeq.Get() - 1);
+| | |--UNetDriver.AddClientConnection() //添加到ClientConnections中
+| | | |--UNetDriver.CreateInitialServerChannels()
+| | | | |--//DS在这里创建ServerChannel, 并且Channel的创建类型是EChannelCreateFlags::OpenedLocally
+| | | | |--ClientConnection->CreateChannelByName(ChannelDef.ChannelName, EChannelCreateFlags::OpenedLocally, ChannelDef.StaticChannelIndex);
+| | |--StatelessConnect->ResetChallengeData() //重置LastChallengeSuccessAddress等信息
+
+
+// 详细分析收包堆栈
+UWorld.Tick()
+--UWorld.BroadcastTickDispatch()
+|--UIpNetDriver.TickDispatch()
+| |--FPacketIterator(UIpNetDriver* InDriver) //或者FPacketIterator::operator++()
+| | |--FPacketIterator.FPacketIterator()
+| | | |--FPacketIterator.AdvanceCurrentPacket()
+| | | | |--FPacketIterator.ReceiveSinglePacket()
+| | | | | |--Driver->GetSocket()->RecvFrom()
+| |--// 由于第一个bit为0,所以不是握手包,里面不会执行任何操作
+| |--const ProcessedPacket UnProcessedPacket = Handler->Incoming(Data, Count);
+| |--UNetConnection.ReceivedRawPacket()
+| | |--PacketHandler.Incoming()
+| | | |-- //当前还是以byte方式存储
+| | | |--PacketView.DataView = {Packet, CountBytes, ECountUnits::Bytes};
+| | | |--PacketView.Address = Address;
+| | | |--PacketView.Traits.bConnectionlessPacket = bConnectionless; // 这里是false
+| | | |--PacketHandler.Incoming_Internal()
+| | | | |--计算该包的bit数量---剔除尾部所有为0的bit 
+| | | | |--StatelessConnectHandlerComponent.Incoming()
+| | | | | |--第一个bit为0, 非handshake包, 跳过所有握手逻辑.
+| | | | |--// 讲过该函数处理后,发来的Packet包内未处理的bit会拷贝到PacketHandler.IncomingPacket中
+| | | | |--PacketHandler.ReplaceIncomingPacket()
+| | | | | |--//将Packet剩余未处理的bit拷贝到PacketHandler.IncomingPacket中, 注意当前只处理了第一个bit(用于判断是否为handshake)
+| | | | | |--TempPacketData.AddUninitialized(ReplacementPacket.GetBytesLeft());
+| | | | | |--TempPacketData[TempPacketData.Num()-1] = 0;
+| | | | | |--int64 NewPacketSizeBits = ReplacementPacket.GetBitsLeft();
+| | | | | |--ReplacementPacket.SerializeBits(TempPacketData.GetData(), NewPacketSizeBits);
+| | | | | |--IncomingPacket.SetData(MoveTemp(TempPacketData), NewPacketSizeBits);
+| | | | |--//将packet状态已由byte转换成bit了. 里面已经计算过有效bit为多少个
+| | | | |--PacketView.DataView = {IncomingPacket.GetData(), (int32)IncomingPacket.GetBitsLeft(), ECountUnits::Bits};
+| | |--//记录当前共收到了多少byte的packet
+| | |--int32 PacketBytes = Count + PacketOverhead;
+| | |--//去掉尾部的结束符(一个bit)
+| | |--FBitReader Reader(Data, BitSize);
+| | |--UNetConnection.ReceivedPacket()
+| | | |--FNetPacketNotify.ReadHeader() // 处理消息头
+| | | | |--// Read packed header
+| | | | |--uint32 PackedHeader = 0;	
+| | | | |--Reader << PackedHeader;
+| | | | |--// unpack
+| | | | |--Data.Seq = FPackedHeader::GetSeq(PackedHeader);
+| | | | |--Data.AckedSeq = FPackedHeader::GetAckedSeq(PackedHeader);
+| | | | |--Data.HistoryWordCount = FPackedHeader::GetHistoryWordCount(PackedHeader) + 1;
+| | | | |--// Read ack history
+| | | | |--Data.History.Read(Reader, Data.HistoryWordCount);
+| | | |--// 获取InSeq之差, 之前已经收到Remote Seq和当前之差
+| | | |--const int32 PacketSequenceDelta = PacketNotify.GetSequenceDelta(Header);
+| | | |--如果PacketSequenceDelta>0, 该包有效, 不是以前收到过的Packet
+| | | |--  const int32 MissingPacketCount = PacketSequenceDelta - 1;
+| | | |--  CVarNetPacketOrderMaxMissingPackets.GetValueOnAnyThread() //默认最大丢包数量为3
+| | | |--// Update incoming sequence data and deliver packet notifications
+| | | |--// Packet is only accepted if both the incoming sequence number and incoming ack data are valid
+| | | |--PacketNotify.Update(Header, HandlePacketNotification);
+| | | | |--const SequenceNumberT::DifferenceT InSeqDelta = GetSequenceDelta(NotificationData);
+| | | | | |-- 如果合法,则返回SequenceNumberT::Diff(NotificationData.Seq, InSeq), 即旧InSeq和新packet的seq之差
+| | | | |--FNetPacketNotify.ProcessReceivedAcks()
+| | | | | |--if (NotificationData.AckedSeq > OutAckSeq) //如果Remote已经AckSeq比当前我们知道的(OutAckSeq)还大,则需要处理Remote相关Ack信息
+| | | | | |--{
+| | | | | |--  //计算当前Packet之中表明的Remote已经处理的Seq和本地保存的AckSeq之差
+| | | | | |--  SequenceNumberT::DifferenceT AckCount = SequenceNumberT::Diff(NotificationData.AckedSeq, OutAckSeq);
+| | | | | |--  InAckSeqAck = UpdateInAckSeqAck(AckCount, NotificationData.AckedSeq);
+| | | | | | |--
+| | | | | |--  // 处理所有超范围ACK
+| | | | | |--  UNetConnection.ReceivedPacket.else.HandlePacketNotification(CurrentAck, false)
+| | | | | |--  // 处理在Packet.History.Storage中标记的AckSeq信息
+| | | | | |--  UNetConnection.ReceivedPacket.else.HandlePacketNotification(CurrentAck, false)
+| | | | | |--  InFunc(CurrentAck, NotificationData.History.IsDelivered(AckCount));
+| | | | | |--
+| | | | | |--  // 把remote已经Ack的Seq(OutAckSeq)更新到最新
+| | | | | |--  OutAckSeq = NotificationData.AckedSeq;
+| | | | | |--
+| | | | | |--
+| | | | | |--
+| | | | | |--
+| | | | | |--
+| | | | | |--
+| | | | | |--
+| | | | |--InSeq = NotificationData.Seq;
+| | | | |--
+| | | | |--
+| | | | |--
+| | | | |--
+| | | | |--
+| | | | |--
+| | | | |--
+| | | | |--
+| | | | |--
+| | | | |--
+| | | | |--
+| | | |--
+| | | |--
+| | | |--
+| | | |--
+| | | |--
+| | | |--
+| | | |--
+| | | |--
+| | | |--
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// 通过UDP Socket发送数据
+UNetConnection.FlushNet()
+--// UIpConnection.LowLevelSend()
+--LowLevelSend(SendBuffer.GetData(), SendBuffer.GetNumBits(), Traits);
+|--LowLevelSend(SendBuffer.GetData(), SendBuffer.GetNumBits(), Traits);
+| |--bWasSendSuccessful = Socket->SendTo(Packet.GetData(), Packet.Num(), Result.BytesSent, *RemoteAddr);
+
+
+
+
+SequenceNumberT(InitialOutSeq.Get() - 1)
+--ServerConn->FlushNet();
+ |--Handler->OutgoingHigh(SendBuffer); //PacketHandler.OutgoingHigh()
+ |--SendBuffer.WriteBit(1); //Write the UNetConnection-level termination bit 
+ |--UNetConnection.WritePacketHeader()
+ | |--FNetPacketNotify.WriteHeader()
+ | | |--SequenceNumberT::SequenceT Seq = OutSeq.Get();
+ | | |--SequenceNumberT::SequenceT AckedSeq = InAckSeq.Get();
+ | | |--生成32bit的PackedHeader
+ | | |--uint32 PackedHeader = FPackedHeader::Pack(Seq, AckedSeq, WrittenHistoryWordCount - 1);
+ | | | |--uint32 Packed = 0u;
+ | | | |--Packed |= Seq.Get() << SeqShift;
+ | | | |--Packed |= AckedSeq.Get() << AckSeqShift;
+ | | | |--Packed |= HistoryWordCount & HistoryWordCountMask;
+ | | | |--return Packed;
+ | | |--Writer << PackedHeader; //将uint32序列化到sendbuffer中
+ | | |--InSeqHistory.Write(Writer, WrittenHistoryWordCount);
+ |--UNetConnection.WriteFinalPacketInfo()
+ | |--Writer.WriteBit(bHasPacketInfoPayload);
+ | |--// 如果payload有效
+ | |--Writer.SerializeBits(&DummyJitterClockTime, NetConnectionHelper::NumBitsForJitterClockTimeInHeader);
+ | |--Writer.WriteBit(bHasServerFrameTime);
+ | |--if (bHasServerFrameTime && Driver->IsServer())
+ | |--    Writer << DummyFrameTimeByte;
+ |--UNetConnection.LowLevelSend() // 真正发送数据包的地方
+ |--PacketNotify.CommitAndIncrementOutSeq();
+ | |--AckRecord.Enqueue( {OutSeq, WrittenInAckSeq} ); // 每次发送完成后,AckRecord记录OutSeq和WrittenInAckSeq
+ | |--WrittenHistoryWordCount = 0u; // 每次发送Packet后,WrittenHistoryWordCount清零
+ | |--++OutSeq // 每次发送完成后, OutSeq自增一
+ 
+ 
+ 
+--UNetConnection.ReceivedPacket()
+ |--PacketNotify.ReadHeader(Header, Reader)
+ |--PacketNotify.Update(Header, HandlePacketNotification);
+ | |--PacketNotify.Update(Header, HandlePacketNotification);
+ | | |--FNetPacketNotify.ProcessReceivedAcks()
+ | | | |--SequenceNumberT::DifferenceT AckCount = SequenceNumberT::Diff(NotificationData.AckedSeq, OutAckSeq);
+ | | | |--InAckSeqAck = UpdateInAckSeqAck(AckCount, NotificationData.AckedSeq);
+ | | | |--
+ | | | |--
+ | | |--InSeq = NotificationData.Seq;
+
+
+
+
+

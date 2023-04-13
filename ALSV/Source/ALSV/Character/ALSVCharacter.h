@@ -4,6 +4,8 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "CharacterDefine.h"
+
 #include "ALSVCharacter.generated.h"
 
 UCLASS(config=Game)
@@ -68,5 +70,26 @@ public:
 	FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
 	/** Returns FollowCamera subobject **/
 	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
+
+public:
+	virtual void Tick(float DeltaSeconds) override;
+	void TickActor(float DeltaSeconds, ELevelTick TickType, FActorTickFunction& ThisTickFunction) override;
+
+public:
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+public:
+	UFUNCTION(Server, Reliable)
+	void ChangeCharacterNumber(int32 InNumber);
+
+	UFUNCTION()
+	void OnRep_CharacterNumberChanged();
+
+public:
+	UPROPERTY(ReplicatedUsing = OnRep_CharacterNumberChanged, EditAnywhere, BlueprintReadOnly, Category = AttrConfig)
+		int32 TestCharacterNumber = 0;
+
+	int32 LocalCharacterNumber = 0;
+	
 };
 
