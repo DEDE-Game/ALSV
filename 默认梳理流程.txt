@@ -323,6 +323,9 @@ FEngineLoop.Tick()
 由于UIpNetDriver.ServerConnection.Socket是nullptr,此处发送失败.
 
 
+ 设置login状态为LoggingIn
+SetClientLoginState(EClientLoginState::LoggingIn) 
+SetExpectedClientLoginMsgType(NMT_Hello) // 设置期望消息为:NMT_Hello
 
 
 
@@ -600,6 +603,7 @@ UWorld.Tick()
 | | | |--  CVarNetPacketOrderMaxMissingPackets.GetValueOnAnyThread() //默认最大丢包数量为3
 | | | |--// Update incoming sequence data and deliver packet notifications
 | | | |--// Packet is only accepted if both the incoming sequence number and incoming ack data are valid
+| | | |--// 解析PacketHeader, 更新序列号相关成员变量
 | | | |--PacketNotify.Update(Header, HandlePacketNotification);
 | | | | |--const SequenceNumberT::DifferenceT InSeqDelta = GetSequenceDelta(NotificationData);
 | | | | | |-- 如果合法,则返回SequenceNumberT::Diff(NotificationData.Seq, InSeq), 即旧InSeq和新packet的seq之差
@@ -609,47 +613,40 @@ UWorld.Tick()
 | | | | | |--  //计算当前Packet之中表明的Remote已经处理的Seq和本地保存的AckSeq之差
 | | | | | |--  SequenceNumberT::DifferenceT AckCount = SequenceNumberT::Diff(NotificationData.AckedSeq, OutAckSeq);
 | | | | | |--  InAckSeqAck = UpdateInAckSeqAck(AckCount, NotificationData.AckedSeq);
-| | | | | | |--
+| | | | | | |-- 根据已经收到的RemoteAckSeq信息, 将已经记录在FNetPacketNotify.AckRecord中Remote已经处理的数据弹出
+| | | | | | |-- AckRecord.PopNoCheck(AckCount - 1);
+| | | | | | |-- // 并返回当前收到remote packet Seq对应的AckSeq信息
+| | | | | | |-- return AckData.InAckSeq;
 | | | | | |--  // 处理所有超范围ACK
 | | | | | |--  UNetConnection.ReceivedPacket.else.HandlePacketNotification(CurrentAck, false)
 | | | | | |--  // 处理在Packet.History.Storage中标记的AckSeq信息
-| | | | | |--  UNetConnection.ReceivedPacket.else.HandlePacketNotification(CurrentAck, false)
-| | | | | |--  InFunc(CurrentAck, NotificationData.History.IsDelivered(AckCount));
-| | | | | |--
+| | | | | |--  UNetConnection.ReceivedPacket.else.HandlePacketNotification(CurrentAck, NotificationData.History.IsDelivered(AckCount))
 | | | | | |--  // 把remote已经Ack的Seq(OutAckSeq)更新到最新
 | | | | | |--  OutAckSeq = NotificationData.AckedSeq;
-| | | | | |--
-| | | | | |--
-| | | | | |--
-| | | | | |--
-| | | | | |--
-| | | | | |--
-| | | | | |--
 | | | | |--InSeq = NotificationData.Seq;
-| | | | |--
-| | | | |--
-| | | | |--
-| | | | |--
-| | | | |--
-| | | | |--
-| | | | |--
-| | | | |--
-| | | | |--
-| | | | |--
-| | | | |--
-| | | |--
-| | | |--
-| | | |--
-| | | |--
-| | | |--
-| | | |--
-| | | |--
-| | | |--
-| | | |--
-
-
-
-
+| | | |--// 循环解析Packet Body
+| | | |--// 解析BunchHeader
+| | | |--FInBunch Bunch( this );
+| | | |--int32 IncomingStartPos		= Reader.GetPosBits();
+| | | |--uint8 bControl				= Reader.ReadBit();
+| | | |--Bunch.PacketId				= InPacketId;
+| | | |--Bunch.bOpen					= bControl ? Reader.ReadBit() : 0;
+| | | |--Bunch.bClose				= bControl ? Reader.ReadBit() : 0;
+| | | |--Bunch.ChSequence = MakeRelative( Reader.ReadInt( MAX_CHSEQUENCE ), InReliable[Bunch.ChIndex], MAX_CHSEQUENCE );
+| | | |--Bunch.bPartialInitial = Bunch.bPartial ? Reader.ReadBit() : 0;
+| | | |--Bunch.bPartialFinal = Bunch.bPartial ? Reader.ReadBit() : 0;
+| | | |--UPackageMap::StaticSerializeName(Reader, Bunch.ChName);
+| | | |--int32 BunchDataBits  = Reader.ReadInt( UNetConnection::MaxPacket*8 );
+| | | |--UChannel.ReceivedNextBunch 
+| | | | |--UChannel.ReceivedNextBunch()
+| | | | | |--UChannel.ReceivedSequencedBunch()
+| | | | | | |--UControlChannel.ReceivedBunch() 
+| | | | | | | |--// 序列化msgType
+| | | | | | | |--Bunch << MessageType;
+| | | | | | | |--这里会进行一些列特殊消息的特殊处理规则
+| | | | | | | |--// UWorld.NotifyControlMessage() 
+| | | | | | | |--Connection->Driver->Notify->NotifyControlMessage(Connection, MessageType, Bunch);
+| | | | | | | | |--FNetControlMessage<NMT_Hello>::Receive(Bunch, IsLittleEndian, RemoteNetworkVersion, EncryptionToken)
 
 
 
@@ -717,6 +714,624 @@ SequenceNumberT(InitialOutSeq.Get() - 1)
  | | | |--
  | | | |--
  | | |--InSeq = NotificationData.Seq;
+
+
+
+
+
+
+
+
+
+
+DS发送ChallengeResponse, 设置等待消息NMT_Hello
+UWorld.Tick()
+--UWorld.BroadcastTickDispatch()
+|--UIpNetDriver.TickDispatch()
+| |--UIpNetDriver.ProcessConnectionlessPacket()
+| | |--PacketHandler.IncomingConnectionless()
+| | | |--PacketHandler.Incoming_Internal()
+| | | | |--StatelessConnectHandlerComponent.IncomingConnectionless()
+| | | | | |--StatelessConnectHandlerComponent.ParseHandshakePacket()
+| | | | | |--bChallengeSuccess = FMemory::Memcmp(Cookie, RegenCookie, COOKIE_BYTE_SIZE) == 0; // 服务器校验客户端发来的Cookie
+| | | | | |--LastChallengeSuccessAddress = Address->Clone();
+| | | | | |--int16* CurSequence = (int16*)Cookie;
+| | | | | |--LastServerSequence = *CurSequence & (MAX_PACKETID - 1); // 初始化ServerSequenceID
+| | | | | |--LastClientSequence = *(CurSequence + 1) & (MAX_PACKETID - 1); // 设置ClientSequenceID
+| | | | | |--StatelessConnectHandlerComponent.SendChallengeAck()
+| | |--StatelessConnect->HasPassedChallenge() //StatelessConnectHandlerComponent.HasPassedChallenge()
+| | |--NewObject<UIpConnection>(); // 创建UIpConnection.
+| | |--ReturnVal->InitRemoteConnection(..., USOCK_Open);// 初始化UIpConnection. UIpConnection::InitRemoteConnection()
+| | | |--UIpConnection.InitBase()
+| | | | |--UNetConnection.InitBase()
+| | | | | |--UNetConnection.State=USOCK_Open. // 这里设置State为Open,等待客户端发来NMT_Hello时进行状态检测.
+| | | | |--UNetConnection.InitSendBuffer() //初始化SendBuffer
+| | | | |--UNetConnection.SetClientLoginState(EClientLoginState::LoggingIn) // 设置login状态为LoggingIn
+| | | | |--UNetConnection.SetExpectedClientLoginMsgType(NMT_Hello) // 设置期望消息为:NMT_Hello
+| | |--UNetDriver.AddClientConnection() //添加到ClientConnections中
+| | |--StatelessConnect->ResetChallengeData() //重置LastChallengeSuccessAddress等信息
+
+
+
+客户端收到ChallengeAck, 发送NMT_Hello
+//UE4网络--详细分析FNetControlMessage<NMT_Hello>::Send
+UWorld.Tick()
+--UWorld.BroadcastTickDispatch()
+|--UIpNetDriver.TickDispatch()
+| |--FPacketIterator(UIpNetDriver* InDriver) //或者FPacketIterator::operator++()
+| | |--FPacketIterator.FPacketIterator()
+| | | |--FPacketIterator.AdvanceCurrentPacket()
+| | | | |--FPacketIterator.ReceiveSinglePacket()
+| | | | | |--Driver->GetSocket()->RecvFrom()
+| |--UNetConnection.ReceivedRawPacket()
+| | |--PacketHandler.Incoming_Internal()
+| | | |--PacketHandler.Incoming_Internal()
+| | | | |--StatelessConnectHandlerComponent.Incoming()
+| | | | | |--HandlerComponent.Initialized()
+| | | | | | |--PacketHandler.HandlerComponentInitialized()
+| | | | | | | |--PacketHandler.HandlerInitialized()
+| | | | | | | | |--// 详情查看:UE4网络---UPendingNetGame
+| | | | | | | | |--HandshakeCompleteDel.ExecuteIfBound()
+| | | | | | | | | |--UPendingNetGame.SendInitialJoin()
+| | | | | | | | | | |--FNetControlMessage<NMT_Hello>::Send(ServerConn, IsLittleEndian, LocalNetworkVersion, EncryptionToken);
+
+
+DS收到NMT_Hello, 发送NMT_Challenge
+UWorld.Tick
+--UIpNetDriver.TickDispatch()
+|--UIpNetDriver.TickDispatch()
+| |--UNetConnection.ReceivedRawPacket()
+| | |--UNetConnection.ReceivedPacket()
+| | | |--UChannel.ReceivedRawBunch()
+| | | | |--UChannel.ReceivedNextBunch()
+| | | | | |--UChannel.ReceivedSequencedBunch()
+| | | | | | |--UControlChannel.ReceivedBunch()
+| | | | | | | |--UWorld.NotifyControlMessage()
+| | | | | | | | |--// 检测版本号,加密数据, 如果合法就直接发送NMT_Login
+| | | | | | | | |--Challenge = FString::Printf(TEXT("%08X"), FPlatformTime::Cycles());
+| | | | | | | | |--SetExpectedClientLoginMsgType(NMT_Login);
+| | | | | | | | |--FNetControlMessage<NMT_Challenge>::Send(this, Challenge);
+
+
+
+
+客户端收到NMT_Challenge, 发送NMT_Login
+UGameEngine.Tick()
+--UEngine.TickWorldTravel()
+ |--UPendingNetGame.Tick()
+ | |--UIpNetDriver.TickDispatch()
+ | | |--UNetConnection.ReceivedRawPacket()
+ | | | |--UNetConnection.ReceivedPacket()
+ | | | | |--UChannel.ReceivedRawBunch()
+ | | | | | |--UChannel.ReceivedNextBunch()
+ | | | | | | |--UChannel.ReceivedSequencedBunch()
+ | | | | | | | |--UControlChannel.ReceivedBunch() 
+ | | | | | | | | |--UPendingNetGame.NotifyControlMessage()
+ | | | | | | | | | |--//解析NMT_Challenge, 并将DS的Challenge填充到UNetConnection.Challenge中
+ | | | | | | | | | |--FNetControlMessage<NMT_Challenge>::Receive(Bunch, Connection->Challenge)
+ | | | | | | | | | |-- // 填充nickname
+ | | | | | | | | | |--FString OverrideName = LocalPlayer->GetNickname();
+ | | | | | | | | | |--PartialURL.AddOption(*FString::Printf(TEXT("Name=%s"), *OverrideName));
+ | | | | | | | | | |-- // 填充GameUrlOptions信息
+ | | | | | | | | | |--FString GameUrlOptions = LocalPlayer->GetGameLoginOptions();
+ | | | | | | | | | |--PartialURL.AddOption(*FString::Printf(TEXT("%s"), *GameUrlOptions));
+ | | | | | | | | | |--//填充PlayerID
+ | | | | | | | | | |--Connection->PlayerId = LocalPlayer->GetPreferredUniqueNetId();
+ | | | | | | | | | |--//设置OnlinePlatformName
+ | | | | | | | | | |--OnlinePlatformName = WorldContext->OwningGameInstance->GetOnlinePlatformName();
+ | | | | | | | | | |--//设置ClientResponse
+ | | | | | | | | | |--Connection->ClientResponse = TEXT("0");
+ | | | | | | | | | |--// 发送NMT_Login
+ | | | | | | | | | |--FNetControlMessage<NMT_Login>::Send(Connection, Connection->ClientResponse, URLString, Connection->PlayerId, OnlinePlatformNameString);
+
+
+DS收到NMT_Login,发送NMT_Welcome
+UWorld.Tick
+--UIpNetDriver.TickDispatch()
+ |--UIpNetDriver.TickDispatch()
+ | |--UNetConnection.ReceivedRawPacket()
+ | | |--UNetConnection.ReceivedPacket()
+ | | | |--UChannel.ReceivedRawBunch()
+ | | | | |--UChannel.ReceivedNextBunch()
+ | | | | | |--UChannel.ReceivedSequencedBunch()
+ | | | | | | |--UControlChannel.ReceivedBunch()
+ | | | | | | | |--UWorld.NotifyControlMessage()
+ | | | | | | | | |--//根据客户端信息填充UNetConnection.ClientResponse
+ | | | | | | | | |--FNetControlMessage<NMT_Login>::Receive(Bunch, Connection->ClientResponse, RequestURL, UniqueIdRepl,OnlinePlatformName);
+ | | | | | | | | |-- //根据客户端信息填充UNetConnection.PlayerId 
+ | | | | | | | | |--Connection->PlayerId = UniqueIdRepl;
+ | | | | | | | | |--// 根据客户端信息填充UNetConnection.PlayerOnlinePlatformName 
+ | | | | | | | | |--Connection->SetPlayerOnlinePlatformName(FName(*OnlinePlatformName));
+ | | | | | | | | |--GameMode->PreLogin(Tmp, Connection->LowLevelGetRemoteAddress(), Connection->PlayerId, ErrorMsg);
+ | | | | | | | | |--UWorld.WelcomePlayer()
+ | | | | | | | | | |--Connection->SetClientWorldPackageName(CurrentLevel->GetOutermost()->GetFName());
+ | | | | | | | | | | |--UNetConnection.ClientWorldPackageName = NewClientWorldPackageName
+ | | | | | | | | | | |--UNetConnection.UpdateAllCachedLevelVisibility()
+ | | | | | | | | | |--GameName = AuthorityGameMode->GetClass()->GetPathName();
+ | | | | | | | | | |--AuthorityGameMode->GameWelcomePlayer(Connection, RedirectURL);// 空函数,具体项目会重写
+ | | | | | | | | | |--FNetControlMessage<NMT_Welcome>::Send(Connection, LevelName, GameName, RedirectURL);
+ | | | | | | | | | |--Connection->FlushNet();
+ | | | | | | | | | |--Connection->QueuedBits = 0;
+ | | | | | | | | | |--Connection->SetClientLoginState( EClientLoginState::Welcomed );	
+ | | | | | | | | | | |--UNetConnection.ClientLoginState = EClientLoginState::Welcomed
+
+
+
+
+客户端收到NMT_Welcome,发送NMT_Netspeed.
+UGameEngine.Tick()
+--UEngine.TickWorldTravel()
+ |--UPendingNetGame.Tick()
+ | |--UIpNetDriver.TickDispatch()
+ | | |--UNetConnection.ReceivedRawPacket()
+ | | | |--UNetConnection.ReceivedPacket()
+ | | | | |--UChannel.ReceivedRawBunch()
+ | | | | | |--UChannel.ReceivedNextBunch()
+ | | | | | | |--UChannel.ReceivedSequencedBunch()
+ | | | | | | | |--UControlChannel.ReceivedBunch() 
+ | | | | | | | | |--UPendingNetGame.NotifyControlMessage()
+ | | | | | | | | | |--//解析NMT_Welcome, GameName:/Game/GamePlay/NewGameMode.NewGameMode_C, 
+ | | | | | | | | | |--//URL.Map:/Game/ThirdPersonCPP/Maps/ThirdPersonExampleMap
+ | | | | | | | | | |--//RedirectURL:空
+ | | | | | | | | | |--FNetControlMessage<NMT_Welcome>::Receive(Bunch, URL.Map, GameName, RedirectURL)
+ | | | | | | | | | |-- // 将GameMode填充到URL.op中. 即game=/Game/GamePlay/NewGameMode.NewGameMode_C
+ | | | | | | | | | |--URL.AddOption(*FString::Printf(TEXT("game=%s"), *GameName));
+ | | | | | | | | | |--//发送NMT_Netspeed
+ | | | | | | | | | |--FNetControlMessage<NMT_Netspeed>::Send(Connection, Connection->CurrentNetSpeed);
+ | | | | | | | | | |-- // 根据UPendingNetGame.bSuccessfullyConnected变量,在下一帧tick时候, 会加载地图
+ | | | | | | | | | |-- UPendingNetGame.bSuccessfullyConnected = true;
+ |-- // 检测Context.PendingNetGame->bSuccessfullyConnected是否OK
+ |-- 检测: Context.PendingNetGame && Context.PendingNetGame->bSuccessfullyConnected && !Context.PendingNetGame->bSentJoinRequest 
+ |--      && (Context.OwningGameInstance == NULL || !Context.OwningGameInstance->DelayPendingNetGameTravel()))
+ |--UEngine.MakeSureMapNameIsValid()
+ |--//客户端切换地图
+ |--const bool bLoadedMapSuccessfully = LoadMap(Context, Context.PendingNetGame->URL, Context.PendingNetGame, Error);
+ | |--FLoadTimeTracker::Get().ResetRawLoadTimes();
+ | |--WorldContext.World()->bIsLevelStreamingFrozen = false;
+ | |--//广播PreLoadMap事件
+ | |--FCoreUObjectDelegates::PreLoadMap.Broadcast(URL.Map);
+ | |--FlushAsyncLoading();
+ | |--CancelPendingMapChange(WorldContext);
+ | | |--Context.LevelsToLoadForPendingMapChange.Empty();
+ | | |--Context.LoadedLevelsForPendingMapChange.Empty();
+ | | |--Context.PendingMapChangeFailureDescription	= TEXT("");
+ | | |--Context.bShouldCommitPendingMapChange		= false;
+ | | |--Context.World()->PreparingLevelNames.Empty();
+ | |--WorldContext.SeamlessTravelHandler.CancelTravel();
+ | |--WorldContext.World()->BeginTearingDown();
+ | | |--bIsTearingDown = true;
+ | | |--BeginTearingDownEvent.Broadcast();
+ | | |--FWorldDelegates::OnWorldBeginTearDown.Broadcast(this);
+ | |--UEngine.LoadMapRedrawViewports()
+ | | |--UGameEngine.RedrawViewports()
+ | | | |--GameViewport->Viewport->Draw(bShouldPresent);
+ | |--TransitionType = ETransitionType::None;
+ | |--ShutdownWorldNetDriver(WorldContext.World());
+ | | |--World->SetNetDriver(NULL);
+ | | |--DestroyNamedNetDriver(World, NetDriver->NetDriverName);
+ | | | |--DestroyNamedNetDriver_Local( GetWorldContextFromWorldChecked(InWorld), NetDriverName);
+ | | | |--//销毁指定名字(NetDriverName)的UNetDriver
+ | | | |--NetDriver->SetWorld(NULL);
+ | | | |--NetDriver->Shutdown();
+ | | | |--NetDriver->LowLevelDestroy();
+ | | | |--Context.ActiveNetDrivers.RemoveAtSwap(Index);
+ | | | |--Context.World()->ClearNetDriver(NetDriver);
+ | |--WorldContext.World()->FlushLevelStreaming(EFlushLevelStreamingType::Visibility);
+ | |--FWorldDelegates::LevelRemovedFromWorld.Broadcast(nullptr, WorldContext.World());
+ | |--//for all LocalPlayer
+ | |--// Destroy all playercontroller and its owned pawn
+ | |--// Disassociate the players from their PlayerControllers in this world.
+ | |--if (WorldContext.OwningGameInstance != nullptr)
+ | |--{
+ | |--	for(auto It = WorldContext.OwningGameInstance->GetLocalPlayerIterator(); It; ++It)
+ | |--	{
+ | |--		ULocalPlayer *Player = *It;
+ | |--		if(Player->PlayerController && Player->PlayerController->GetWorld() == WorldContext.World())
+ | |--		{
+ | |--			if(Player->PlayerController->GetPawn())
+ | |--			{
+ | |--				WorldContext.World()->DestroyActor(Player->PlayerController->GetPawn(), true);
+ | |--			}
+ | |--			WorldContext.World()->DestroyActor(Player->PlayerController, true);
+ | |--			Player->PlayerController = nullptr;
+ | |--		}
+ | |--		// reset split join info so we'll send one after loading the new map if necessary
+ | |--		Player->bSentSplitJoin = false;
+ | |--		// When loading maps, clear out mids that are referenced as they may prevent the world from shutting down cleanly and the local player will not be cleaned up until later
+ | |--		Player->CleanupViewState(); 
+ | |--	}
+ | |--}
+ | |--// route EndPlay all world actors
+ | |--for (FActorIterator ActorIt(WorldContext.World()); ActorIt; ++ActorIt)
+ | |--{
+ | |--	ActorIt->RouteEndPlay(EEndPlayReason::LevelTransition);
+ | |--}
+ | |--WorldContext.World()->CleanupWorld();
+ | | |--UWorld.CleanupWorldGlobalTag++;
+ | | |--UWorld.CleanupWorldInternal(bSessionEnded, bCleanupResources, NewWorld);
+ | | | |--CleanupWorldTag = CleanupWorldGlobalTag;
+ | | | |--FWorldDelegates::OnWorldCleanup.Broadcast(this, bSessionEnded, bCleanupResources);
+ | | | |--GetRendererModule().OnWorldCleanup(this, bSessionEnded, bCleanupResources, bWorldChanged);
+ | | | |--// cleanup net driver
+ | | | |--ForEachNetDriver(GEngine, this, [](UNetDriver* const Driver)
+ | | | |--{
+ | | | |--	if (Driver != nullptr)
+ | | | |--	{
+ | | | |--		Driver->GetNetworkObjectList().Reset();
+ | | | |--	}
+ | | | |--});
+ | | | |--UWorld.ClearWorldComponents()
+ | | | | |--for( int32 LevelIndex=0; LevelIndex<Levels.Num(); LevelIndex++ )
+ | | | | |--{
+ | | | | |--	ULevel* Level = Levels[LevelIndex];
+ | | | | |--	Level->ClearLevelComponents();
+ | | | | | |--bAreComponentsCurrentlyRegistered = false;
+ | | | | | |--
+ | | | | | |--// Remove the model components from the scene.
+ | | | | | |--for (UModelComponent* ModelComponent : ModelComponents)
+ | | | | | |--{
+ | | | | | |--	if (ModelComponent && ModelComponent->IsRegistered())
+ | | | | | |--	{
+ | | | | | |--		ModelComponent->UnregisterComponent();
+ | | | | | |--	}
+ | | | | | |--}
+ | | | | | |--
+ | | | | | |--// Remove the actors' components from the scene and build a list of relevant worlds
+ | | | | | |--// In theory (though it is a terrible idea), users could spawn Actors from an OnUnregister event so don't use ranged-for
+ | | | | | |--for (int32 ActorIndex = 0; ActorIndex < Actors.Num(); ++ActorIndex)
+ | | | | | |--{
+ | | | | | |--	AActor* Actor = Actors[ActorIndex];
+ | | | | | |--	if (Actor)
+ | | | | | |--	{
+ | | | | | |--		Actor->UnregisterAllComponents();
+ | | | | | |--	}
+ | | | | | |--}
+ | | | | |--}
+ | | | | |--
+ | | | | |--if(LineBatcher && LineBatcher->IsRegistered())
+ | | | | |--{
+ | | | | |--	LineBatcher->UnregisterComponent();
+ | | | | |--}
+ | | | | |--
+ | | | | |--if(PersistentLineBatcher && PersistentLineBatcher->IsRegistered())
+ | | | | |--{
+ | | | | |--	PersistentLineBatcher->UnregisterComponent();
+ | | | | |--}
+ | | | | |--
+ | | | | |--if(ForegroundLineBatcher && ForegroundLineBatcher->IsRegistered())
+ | | | | |--{
+ | | | | |--	ForegroundLineBatcher->UnregisterComponent();
+ | | | | |--}
+ | | | | |--
+ | | | | |--if (PhysicsField && PhysicsField->IsRegistered())
+ | | | | |--{
+ | | | | |--	PhysicsField->UnregisterComponent();
+ | | | | |--}
+ | | | |--PersistentLevel->ReleaseRenderingResources();
+ | | | |--// for all level, cleanup it owner world
+ | | | |--for (int32 LevelIndex = 0; LevelIndex < GetNumLevels(); ++LevelIndex)
+ | | | |--{
+ | | | |--	UWorld* World = CastChecked<UWorld>(GetLevel(LevelIndex)->GetOuter());
+ | | | |--	World->CleanupWorldInternal(bSessionEnded, bCleanupResources, NewWorld);
+ | | | |--}
+ | | | |--// for streaming level, cleanup it owner world
+ | | | |--for (ULevelStreaming* StreamingLevel : GetStreamingLevels())
+ | | | |--{
+ | | | |--	if (ULevel* Level = StreamingLevel->GetLoadedLevel())
+ | | | |--	{
+ | | | |--		UWorld* World = CastChecked<UWorld>(Level->GetOuter());
+ | | | |--		World->CleanupWorldInternal(bSessionEnded, bCleanupResources, NewWorld);
+ | | | |--	}
+ | | | |--}
+ | | | |--// for dynamic duplicate levels
+ | | | |--UWorld* const LevelWorld = CastChecked<UWorld>(Level->GetOuter());
+ | | | |--LevelWorld->CleanupWorldInternal(bSessionEnded, bCleanupResources, NewWorld);
+ | | | |--FWorldDelegates::OnPostWorldCleanup.Broadcast(this, bSessionEnded, bCleanupResources);
+ | |--GEngine->WorldDestroyed(WorldContext.World());
+ | |--WorldContext.World()->RemoveFromRoot();
+ | |--WorldContext.SetCurrentWorld(nullptr);
+ | |--//在还没有加载地图之前, 做一些预加载工作
+ | |--WorldContext.OwningGameInstance->PreloadContentForURL(URL);
+ | |--UWorld::WorldTypePreLoadMap.FindOrAdd( URLMapFName ) = WorldContext.WorldType;
+ | |--WorldPackage = FindPackage(nullptr, *URL.Map);
+ | |--// if not load the map, load it.
+ | |--WorldPackage = LoadPackage(nullptr, *URL.Map, (WorldContext.WorldType == EWorldType::PIE ? LOAD_PackageForPIE : LOAD_None));
+ | |--UWorld::WorldTypePreLoadMap.Remove( URLMapFName );
+ | |--NewWorld = UWorld::FindWorldInPackage(WorldPackage);
+ | |--// handle the MapBuildData
+ | |--NewWorld->PersistentLevel->HandleLegacyMapBuildData();
+ | |--// set GameInstance for the new world.
+ | |--NewWorld->SetGameInstance(WorldContext.OwningGameInstance);
+ | |--// set global world
+ | |--GWorld = NewWorld;
+ | |--WorldContext.SetCurrentWorld(NewWorld);
+ | |--WorldContext.World()->WorldType = WorldContext.WorldType;
+ | |--WorldContext.World()->AddToRoot();
+ | |--WorldContext.World()->InitWorld();
+ | | |--InitializeSubsystems(); // intit world subsystem
+ | | | |--SubsystemCollection.Initialize(this);
+ | | |--FWorldDelegates::OnPreWorldInitialization.Broadcast(this, IVS);
+ | | |--CreateAISystem();
+ | | |--if (PersistentLevel->GetOuter() != this)
+ | | |--{
+ | | |--	// Move persistent level into world so the world object won't get garbage collected in the multi- level
+ | | |--	// case as it is still referenced via the level's outer. This is required for multi- level editing to work.
+ | | |--	PersistentLevel->Rename( *PersistentLevel->GetName(), this, REN_ForceNoResetLoaders );
+ | | |--}
+ | | |--PersistentLevel->OwningWorld = this;
+ | | |--PersistentLevel->bIsVisible = true;
+ | | |--IStreamingManager::Get().AddLevel(PersistentLevel);
+ | | |--BroadcastLevelsChanged();
+ | |--MovePendingLevel(WorldContext);
+ | | |--Context.World()->SetNetDriver(Context.PendingNetGame->NetDriver);
+ | | | |--UWorld.NetDriver = NewDriver;
+ | | |--NetDriver->SetNetDriverName(NAME_GameNetDriver);
+ | | |--NetDriver->SetWorld(Context.World());
+ | | |--
+ | | |--FLevelCollection& SourceLevels = Context.World()->FindOrAddCollectionByType(ELevelCollectionType::DynamicSourceLevels);
+ | | |--SourceLevels.SetNetDriver(NetDriver);
+ | | |--
+ | | |--FLevelCollection& StaticLevels = Context.World()->FindOrAddCollectionByType(ELevelCollectionType::StaticLevels);
+ | | |--StaticLevels.SetNetDriver(NetDriver);
+ | | |--// clean navigation system
+ | | |--Context.World()->SetNavigationSystem(nullptr);
+ | |--WorldContext.World()->SetGameMode(URL);
+ | | |--// do nothing on the client
+ | |--WorldContext.World()->FlushLevelStreaming(EFlushLevelStreamingType::Visibility);
+ | |--WorldContext.World()->CreateAISystem();
+ | |--WorldContext.World()->InitializeActorsForPlay(URL, true, &Context);
+ | | |--UWorld.UpdateCullDistanceVolumes()
+ | |--FNavigationSystem::AddNavigationSystemToWorld(*WorldContext.World(), FNavigationSystemRunMode::GameMode);
+ | | |--NavigationSystemConfig = WorldSettings->GetNavigationSystemConfig();
+ | | |--NavigationSystemConfig->CreateAndConfigureNavigationSystem(WorldOwner)
+ | | |--WorldOwner.SetNavigationSystem(NavSysInstance);	
+ | | |--WorldOwner.GetNavigationSystem()->InitializeForWorld(WorldOwner, ResolvedRunMode);
+ | |--// for client
+ | |--WorldContext.LastRemoteURL = URL;
+ | |--// spawn player controller for local player
+ | |--!(*It)->SpawnPlayActor(URL.ToString(1),Error2,WorldContext.World())
+ | | |--PlayerController = InWorld->SpawnActor<APlayerController>(PCClass, SpawnInfo);
+ | | |--const int32 PlayerIndex = GEngine->GetGamePlayers(InWorld).Find(this);
+ | | |--PlayerController->NetPlayerIndex = PlayerIndex;
+ | | |--PlayerController->Player = this;
+ | |--IStreamingManager::Get().NotifyLevelChange();
+ | |--GEngine->XRSystem->OnBeginPlay(WorldContext);
+ | |--WorldContext.World()->BeginPlay();
+ | | |--// for client brocast OnWorldBeginPlay
+ | | |--OnWorldBeginPlay.Broadcast();
+ | |--PostLoadMapCaller.Broadcast(WorldContext.World());
+ | |--WorldContext.World()->bWorldWasLoadedThisTick = true;
+ | |--RedrawViewports(false);
+ | |--// tell gameinstance, the map load complete with load time
+ | |--WorldContext.OwningGameInstance->LoadComplete(StopTime - StartTime, *URL.Map);
+ |--Context.PendingNetGame->LoadMapCompleted(this, Context, bLoadedMapSuccessfully, Error);
+ | |--Engine->TransitionType = ETransitionType::Connecting;
+ | |--Engine->RedrawViewports(false);
+ | |--Context.PendingNetGame->SendJoin();
+ | | |--bSentJoinRequest = true;
+ | | |--FNetControlMessage<NMT_Join>::Send(NetDriver->ServerConnection);
+ | | |--NetDriver->ServerConnection->FlushNet(true);
+ | |--Context.PendingNetGame->NetDriver = NULL;
+ |--Context.PendingNetGame = nullptr;
+
+ 
+Connection->SetClientLoginState(EClientLoginState::ReceivedJoin);
+
+DS收到NMT_Join, 
+UGameEngine.Tick()
+--UEngine.TickWorldTravel()
+ |--UPendingNetGame.Tick()
+ | |--UIpNetDriver.TickDispatch()
+ | | |--UNetConnection.ReceivedRawPacket()
+ | | | |--UNetConnection.ReceivedPacket()
+ | | | | |--UChannel.ReceivedRawBunch()
+ | | | | | |--UChannel.ReceivedNextBunch()
+ | | | | | | |--UChannel.ReceivedSequencedBunch()
+ | | | | | | | |--UControlChannel.ReceivedBunch() 
+ | | | | | | | | |--UWorld.NotifyControlMessage()
+ | | | | | | | | | |--Connection->PlayerController = SpawnPlayActor( Connection, ROLE_AutonomousProxy, InURL, Connection->PlayerId, ErrorMsg );
+ | | | | | | | | | | |--UWorld.SpawnPlayActor(NewPlayer, RemoteRole, InURL, UniqueIdRepl, Error, InNetPlayerIndex);
+ | | | | | | | | | | | |--APlayerController* const NewPlayerController = GameMode->Login(NewPlayer, RemoteRole, *InURL.Portal, Options, UniqueId, Error);
+ | | | | | | | | | | | | |--ErrorMessage = GameSession->ApproveLogin(Options);
+ | | | | | | | | | | | | |--APlayerController* const NewPlayerController = SpawnPlayerController(InRemoteRole, Options);
+ | | | | | | | | | | | | | |--AGameModeBase.SpawnPlayerController()
+ | | | | | | | | | | | | | | |--AGameModeBase.SpawnPlayerControllerCommon()
+ | | | | | | | | | | | | | | | |--APlayerController* NewPC = GetWorld()->SpawnActor<APlayerController>(InPlayerControllerClass, SpawnLocation, SpawnRotation, SpawnInfo);
+ | | | | | | | | | | | | | | | |--UGameplayStatics::FinishSpawningActor(NewPC, FTransform(SpawnRotation, SpawnLocation));
+ | | | | | | | | | | | | |--AGameModeBase.InitNewPlayer(NewPlayerController, UniqueId, Options, Portal);
+ | | | | | | | | | | | | | |--GameSession->RegisterPlayer(NewPlayerController, UniqueId.GetUniqueNetId(), UGameplayStatics::HasOption(Options, TEXT("bIsFromInvite")));
+ | | | | | | | | | | | | | |--AActor* const StartSpot = FindPlayerStart(NewPlayerController, Portal);
+ | | | | | | | | | | | | | |--AGameModeBase.ChangeName()
+ | | | | | | | | | | | | | | |--Other->PlayerState->SetPlayerName(S);
+ | | | | | | | | | | | | | | | |--APlayerState.SetPlayerNameInternal(S);
+ | | | | | | | | | | | | | | | | |--PlayerNamePrivate = S
+ | | | | | | | | | | | | | | | |--OldNamePrivate = GetPlayerName();
+ | | | | | | | | | | | | | | |--K2_OnChangeName(Other, S, bNameChange);
+ | | | | | | | | | | | |--NewPlayerController->NetPlayerIndex = InNetPlayerIndex;
+ | | | | | | | | | | | |--NewPlayerController->SetRole(ROLE_Authority);
+ | | | | | | | | | | | |--NewPlayerController->SetReplicates(RemoteRole != ROLE_None);
+ | | | | | | | | | | | |--NewPlayerController->SetAutonomousProxy(true);
+ | | | | | | | | | | | |--NewPlayerController->SetPlayer(NewPlayer);
+ | | | | | | | | | | | | |--APlayerController.Player = InPlayer;
+ | | | | | | | | | | | | |--InPlayer->PlayerController = this;
+ | | | | | | | | | | | | |--NetConnection = Cast<UNetConnection>(InPlayer);
+ | | | | | | | | | | | | |--NetConnection->OwningActor = this;
+ | | | | | | | | | | | | |--APlayerController.UpdateStateInputComponents();
+ | | | | | | | | | | | | |--APlayerController.ReceivedPlayer()
+ | | | | | | | | | | | |--GameMode->PostLogin(NewPlayerController);
+ | | | | | | | | | | | | |--AGameModeBase.GenericPlayerInitialization(NewPlayer)
+ | | | | | | | | | | | | | |--AGameModeBase.InitializeHUDForPlayer(PC);
+ | | | | | | | | | | | | | | |--NewPlayer->ClientSetHUD(HUDClass); // 通知client,创建HUD
+ | | | | | | | | | | | | | | | |--MyHUD = GetWorld()->SpawnActor<AHUD>(NewHUDClass, SpawnInfo );
+ | | | | | | | | | | | | | |--AGameModeBase.UpdateGameplayMuteList(PC);
+ | | | | | | | | | | | | | |--PC->ClientEnableNetworkVoice(!GameSession->RequiresPushToTalk());
+ | | | | | | | | | | | | | |--AGameModeBase.ReplicateStreamingStatus(PC) // 更新Streaminglevel状态
+ | | | | | | | | | | | | | |--PC->SetCinematicMode(true, HidePlayer, HideHUD, DisableMovement, DisableTurning);
+ | | | | | | | | | | | | | |--GameSession->PostLogin(NewPlayer);
+ | | | | | | | | | | | | | |--FGameModeEvents::GameModePostLoginEvent.Broadcast(this, NewPlayer);
+ | | | | | | | | | | | | | |--HandleStartingNewPlayer(NewPlayer);
+ | | | | | | | | | | | | | | |--AGameModeBase.RestartPlayer(NewPlayer);
+ | | | | | | | | | | | | | | | |--AActor* StartSpot = FindPlayerStart(NewPlayer);
+ | | | | | | | | | | | | | | | |--RestartPlayerAtPlayerStart(NewPlayer, StartSpot);
+ | | | | | | | | | | | | | | | | |--NewPlayer->SetPawn(SpawnDefaultPawnFor(NewPlayer, StartSpot));
+ | | | | | | | | | | | | | | | | |--InitStartSpot(StartSpot, NewPlayer);
+ | | | | | | | | | | | | | | | | |--FinishRestartPlayer(NewPlayer, SpawnRotation);
+ | | | | | | | | | | | | | | | | | |--NewPlayer->Possess(NewPlayer->GetPawn());
+ | | | | | | | | | | | | | | | | | |--NewPlayer->ClientSetRotation(NewPlayer->GetPawn()->GetActorRotation(), true);
+ | | | | | | | | | | | | | | | | | |--NewPlayer->SetControlRotation(NewControllerRot);
+ | | | | | | | | | | | | | | | | | |--SetPlayerDefaults(NewPlayer->GetPawn());
+ | | | | | | | | | | | | | | | | | |--K2_OnRestartPlayer(NewPlayer);
+ | | | | | | | | | |--Connection->SetClientLoginState(EClientLoginState::ReceivedJoin);
+
+
+
+--
+ |--
+ | |--
+ | | |--
+ | | | |--
+ | | | | |--
+ | | | | | |--
+ | | | | | | |--
+ | | | | | | | |--
+ | | | | | | | | |--
+ | | | | | | | | | |--
+ | | | | | | | | | | |--
+ | | | | | | | | | | | |--
+ | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | | |--
+ 
+
+每个需要属性同步的Actor在创建的时候, 都需要注册到UNetDriver.NetworkObjects中
+UWorld.SpawnActor()
+--UWorld.AddNetworkActor()
+ |--ForEachNetDriver()
+ | |--UNetDriver.AddNetworkActor()
+ | | |--GetNetworkObjectList().FindOrAdd(Actor, this); //FNetworkObjectList::FindOrAdd
+ | | | |--FNetworkObjectList.ActiveNetworkObjects.Add(*NetworkObjectInfo);
+
+
+
+
+发送RPC时候, 如果Actor没有对应的Channel,需要先创建, 再使用.
+UWorld.Tick()
+--UIpNetDriver.TickDispatch()
+ |--UNetConnection.ReceivedRawPacket()
+ | |--UNetConnection.ReceivedPacket()
+ | | |--UChannel.ReceivedRawBunch()
+ | | | |--UChannel.ReceivedNextBunch()
+ | | | | |--UChannel.ReceivedSequencedBunch()
+ | | | | | |--UControlChannel.ReceivedBunch()
+ | | | | | | |--UWorld.NotifyControlMessage()
+ | | | | | | | |--UWorld.SpawnPlayActor()
+ | | | | | | | | |--AGameModeBase.PostLogin()
+ | | | | | | | | | |--AGameModeBase.GenericPlayerInitialization()
+ | | | | | | | | | | |--AGameModeBase.InitializeHUDForPlayer()
+ | | | | | | | | | | | |--APlayerController.ClientSetHUD()
+ | | | | | | | | | | | | |--AActor.ProcessEvent()
+ | | | | | | | | | | | | | |--UObject.ProcessEvent()
+ | | | | | | | | | | | | | | |--AActor.CallRemoteFunction()
+ | | | | | | | | | | | | | | | |--UNetDriver.ProcessRemoteFunction()
+ | | | | | | | | | | | | | | | | |--UNetDriver.InternalProcessRemoteFunction()
+ | | | | | | | | | | | | | | | | | |--UNetDriver.InternalProcessRemoteFunctionPrivate()
+ | | | | | | | | | | | | | | | | | | |--UActorChannel.SetChannelActor()
+ | | | | | | | | | | | | | | | | | | | |--UActorChannel.FindOrCreateReplicator()
+ | | | | | | | | | | | | | | | | | | | | |--UNetConnection.CreateReplicatorForNewActorChannel()
+ | | | | | | | | | | | | | | | | | | | | | |--FObjectReplicator.InitWithObject()
+ | | | | | | | | | | | | | | | | | | | | | | |--UNetDriver.GetObjectClassRepLayout()
+ | | | | | | | | | | | | | | | | | | | | | | | |--FRepLayout.CreateFromClass()
+ | | | | | | | | | | | | | | | | | | | | | | | | |--FRepLayout.InitFromClass()
+ | | | | | | | | | | | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | | | | | | | | | | | | | |--
+
+
+
+
+收集Class中需要网络复制的变量和函数
+UNetDriver.TickFlush()
+--UNetDriver.ServerReplicateActors()
+ |--UNetDriver.ServerReplicateActors_ProcessPrioritizedActors()
+ | |--UActorChannel.ReplicateActor()
+ | | |--FObjectReplicator.ReplicateProperties()
+ | | | |--FRepLayout.ReplicateProperties()
+ | | | | |--FRepLayout.SendProperties()
+ | | | | | |--FRepLayout.SendProperties_r()
+ | | | | | | |--FObjectPropertyBase.NetSerializeItem()
+ | | | | | | | |--UPackageMapClient.SerializeObject()
+ | | | | | | | | |--FNetGUIDCache.GetOrAssignNetGUID()
+ | | | | | | | | | |--FNetGUIDCache.AssignNewNetGUID_Server()
+ | | | | | | | | | | |--FNetGUIDCache.RegisterNetGUID_Server()
+ | | | | | | | | | | | |--FNetGUIDCache.GetNetworkChecksum()
+ | | | | | | | | | | | | |--FClassNetCacheMgr.GetClassNetCache()
+ | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | | |--
+
+
+
+
+
+// 在第一次调用RPC函数时, 如果没有创建对应的Replicator, 会触发Replicator的创建流程
+//创建流程如下
+--APlayerController::ClientSetHUD()
+ |--AActor.ProcessEvent()
+ | |--UObject.ProcessEvent()
+ | | |--AActor.CallRemoteFunction()
+ | | | |--UNetDriver.ProcessRemoteFunction()
+ | | | | |--UNetDriver.InternalProcessRemoteFunction()
+ | | | | | |--UNetDriver.InternalProcessRemoteFunctionPrivate()
+ | | | | | | |--UActorChannel.SetChannelActor()
+ | | | | | | | |--UActorChannel.FindOrCreateReplicator()
+ | | | | | | | | |--FObjectReplicator.StartReplicating()
+ | | | | | | | | | |--FObjectReplicator.OwningChannel = InActorChannel; // 设置FObjectReplicator对应的channel
+ | | | | | | | | | |--FObjectReplicator.ObjectNetGUID = ConnectionNetDriver->GuidCache->GetOrAssignNetGUID( Object ); // 设置Replicator对应的ObjectNetGUID
+ | | | | | | | | | |--// UNetDriver.GetReplicationChangeListMgr()
+ | | | | | | | | | |--// 从NetDriver中提取出UObject对应的ChangelistMgr, 并赋值给FObjectReplicator.ChangelistMgr
+ | | | | | | | | | |--ChangelistMgr = WorldNetDriver->GetReplicationChangeListMgr(Object);
+ | | | | | | | | | | |--const TSharedPtr<const FRepLayout> RepLayout = GetObjectClassRepLayout(Object->GetClass());
+ | | | | | | | | | | |--FReplicationChangelistMgrWrapper Wrapper(Object, RepLayout->CreateReplicationChangelistMgr(Object, GetCreateReplicationChangelistMgrFlags()));
+ | | | | | | | | | | | |--FReplicationChangelistMgr.LastInitialReplicationFrame{ctor} // 在初始化列表中进行初始化
+ | | | | | | | | | | | | |--FRepChangelistState::FRepChangelistState{ctor}// 初始化列表中进行初始化
+ | | | | | | | | | | | | | |--FRepLayout.CreateShadowBuffer()
+ | | | | | | | | | | | | | | |--FRepLayout.InitRepStateStaticBuffer()
+ | | | | | | | | | | | | | | | |--ShadowData.Buffer.SetNumZeroed(ShadowDataBufferSize);
+ | | | | | | | | | | | | | | | |--FRepLayout.ConstructProperties()
+ | | | | | | | | | | | | | | | |--FRepLayout.CopyProperties()
+ | | | | | | | | | | |--// 将新创建的FReplicationChangelistMgrWrapper放入UNetDriver.ReplicationChangeListMap中
+ | | | | | | | | | | |--ReplicationChangeListMgrPtr = &ReplicationChangeListMap.Add(Object, Wrapper);
+ | | | | | | |--UNetDriver.ProcessRemoteFunctionForChannelPrivate()
+ | | | | | | | |--Ch->ReplicateActor();
+ | | | | | | | | |--WroteSomethingImportant |= ActorReplicator->ReplicateProperties(Bunch, RepFlags);
+ | | | | | | | | | |--FNetSerializeCB::UpdateChangelistMgr(*RepLayout, SendingRepState, *ChangelistMgr, Object, Connection->Driver->ReplicationFrame, RepFlags, OwningChannel->bForceCompareProperties || bUseCheckpointRepState);
+ | | | | | | | | | | |--FRepLayout.UpdateChangelistMgr() 
+ | | | | | | | | | | | |--FRepLayout.CompareProperties()
+ | | | | | | | | | | | | |--RepChangelistState->CompareIndex++;
+ | | | | | | | | | | | | |--
+ | | | | | | | | | | | | |--
+ | | | | | | | | | | | | |--
+ | | | | | | | | | | | | |--
+ | | | | | | | | | | | | |--
+ | | | | | | | | | | | |--InChangelistMgr.LastReplicationFrame = ReplicationFrame;
+ | | | | | | | | | | | |--if (GShareInitialCompareState && RepFlags.bNetInitial)
+ | | | | | | | | | | | |--{
+ | | | | | | | | | | | |--	InChangelistMgr.LastInitialReplicationFrame = ReplicationFrame;
+ | | | | | | | | | | | |--}
+ | | | | | | | | | | | |--
+ | | | | | | | | | | | |--
+ | | | | | | | | | | | |--
+ | | | | | | | | | | | |--
+ | | | | | | | | | | | |--
+ | | | | | | | | | | | |--
+ | | | | | | | | | |--ReplicateCustomDeltaProperties(Writer, RepFlags);
+
 
 
 

@@ -23,13 +23,43 @@ public:
 	UFUNCTION(Server, Reliable)
 	void ChangeControllerNumber(int32 InNumber);
 
-	UFUNCTION()
-	void OnRep_ControllerNumberChanged();
 
 public:
-	UPROPERTY(ReplicatedUsing = OnRep_ControllerNumberChanged, EditAnywhere, BlueprintReadOnly, Category = AttrConfig)
+	UPROPERTY(ReplicatedUsing = OnRep_ControllerNumberChanged)
 		int32 TestControllerNumber = 0;
 
+	UFUNCTION()
+		void OnRep_ControllerNumberChanged();
+
+public:
+	UPROPERTY(ReplicatedUsing = OnRep_TestObj)
+		UMyTestObject *pTestObj = 0;
+
+	UFUNCTION()
+	void OnRep_TestObj();
+
+
+	UPROPERTY(ReplicatedUsing = OnRep_TestData)
+		FMyTestData TestData;
+
+	UFUNCTION()
+		void OnRep_TestData();
+
+
+	UPROPERTY(ReplicatedUsing = OnRep_TestDataList)
+		TArray<FMyTestData> TestDataList;
+
+	UFUNCTION()
+		void OnRep_TestDataList();
+
+	UPROPERTY(Replicated)
+		int32 TestIntArray[3] ;
+
+	UPROPERTY(Replicated)
+		FMyTestData MyTestDataArray[3];
+
+
+public:
 	int32 LocalControllerNumber = 0;
 
 };

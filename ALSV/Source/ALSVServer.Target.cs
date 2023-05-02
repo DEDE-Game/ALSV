@@ -8,7 +8,7 @@ public class ALSVServerTarget : TargetRules
 	public ALSVServerTarget(TargetInfo Target) : base(Target)
 	{
 		Type = TargetType.Server;
-
+		bWithPushModel = true;
 		ExtraModuleNames.AddRange( new string[] { "ALSV" } );
 	}
 }
