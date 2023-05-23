@@ -1238,17 +1238,91 @@ UWorld.Tick()
  | | | | | | | | | | | | | | | |--UNetDriver.ProcessRemoteFunction()
  | | | | | | | | | | | | | | | | |--UNetDriver.InternalProcessRemoteFunction()
  | | | | | | | | | | | | | | | | | |--UNetDriver.InternalProcessRemoteFunctionPrivate()
+ | | | | | | | | | | | | | | | | | | |--UActorChannel* Ch = Connection->FindActorChannelRef(Actor);
+ | | | | | | | | | | | | | | | | | | |--如果没有找到, 则创建新的, 以下为UActorChannel创建流程:
+ | | | | | | | | | | | | | | | | | | |-- Ch = Cast<UActorChannel>(Connection->CreateChannelByName(NAME_Actor, EChannelCreateFlags::OpenedLocally));
+ | | | | | | | | | | | | | | | | | | | |--ChIndex = GetFreeChannelIndex(ChName); //找到FreeChannelIndex
+ | | | | | | | | | | | | | | | | | | | |--UChannel* Channel = Driver->GetOrCreateChannelByName(ChName);
+ | | | | | | | | | | | | | | | | | | | | |--UNetDriver.InternalCreateChannelByName() // 根据ChannelName创建对应的Channel
+ | | | | | | | | | | | | | | | | | | | | | |--根据配置, 找到ChannelName对应的Class, 创建对应的Channel
+ | | | | | | | | | | | | | | | | | | | | | |--return NewObject<UChannel>(GetTransientPackage(), ChannelDefinitionMap[ChName].ChannelClass);
+ | | | | | | | | | | | | | | | | | | | |--Channel->Init( this, ChIndex, CreateFlags );
+ | | | | | | | | | | | | | | | | | | | |--Channels[ChIndex] = Channel;
+ | | | | | | | | | | | | | | | | | | | |--UNetConnection.OpenChannels.Add(Channel);
+ | | | | | | | | | | | | | | | | | | | |--if (Driver->ChannelDefinitionMap[ChName].bTickOnCreate)
+ | | | | | | | | | | | | | | | | | | | |--{
+ | | | | | | | | | | | | | | | | | | | |--	StartTickingChannel(Channel);
+ | | | | | | | | | | | | | | | | | | | |--}
  | | | | | | | | | | | | | | | | | | |--UActorChannel.SetChannelActor()
+ | | | | | | | | | | | | | | | | | | | |--UActorChannel.Actor = InActor; 
+ | | | | | | | | | | | | | | | | | | | |--bActorIsPendingKill = false;
+ | | | | | | | | | | | | | | | | | | | |--Connection->AddActorChannel(Actor, this);
+ | | | | | | | | | | | | | | | | | | | |--ActorReplicator = FindOrCreateReplicator(Actor);
  | | | | | | | | | | | | | | | | | | | |--UActorChannel.FindOrCreateReplicator()
- | | | | | | | | | | | | | | | | | | | | |--UNetConnection.CreateReplicatorForNewActorChannel()
+ | | | | | | | | | | | | | | | | | | | | |--NewReplicator = Connection->CreateReplicatorForNewActorChannel(Obj); 
  | | | | | | | | | | | | | | | | | | | | | |--FObjectReplicator.InitWithObject()
- | | | | | | | | | | | | | | | | | | | | | | |--UNetDriver.GetObjectClassRepLayout()
- | | | | | | | | | | | | | | | | | | | | | | | |--FRepLayout.CreateFromClass()
- | | | | | | | | | | | | | | | | | | | | | | | | |--FRepLayout.InitFromClass()
- | | | | | | | | | | | | | | | | | | | | | | | | | |--
- | | | | | | | | | | | | | | | | | | | | | | | | | | |--
- | | | | | | | | | | | | | | | | | | | | | | | | | | | |--
- | | | | | | | | | | | | | | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | | | | | | | |--RepLayout = Connection->Driver->GetObjectClassRepLayout( ObjectClass ); // 所有RepLayout都存放在Driver中
+ | | | | | | | | | | | | | | | | | | | | | | | |--RepLayoutPtr = &RepLayoutMap.Add(Class, FRepLayout::CreateFromClass(Class, ServerConnection, Flags));
+ | | | | | | | | | | | | | | | | | | | | | | |--FObjectReplicator.InitRecentProperties( Source );
+ | | | | | | | | | | | | | | | | | | | | | | | |--TSharedPtr<FRepChangedPropertyTracker> RepChangedPropertyTracker = bCreateSendingState ? ConnectionDriver->FindOrCreateRepChangedPropertyTracker(MyObject) : nullptr;
+ | | | | | | | | | | | | | | | | | | | | | | | | |--FRepChangedPropertyTracker * Tracker = new FRepChangedPropertyTracker(bIsReplay, bIsClientReplayRecording);
+ | | | | | | | | | | | | | | | | | | | | | | | | |--GetObjectClassRepLayout( Obj->GetClass() )->InitChangedTracker( Tracker );
+ | | | | | | | | | | | | | | | | | | | | | | | | |--GlobalPropertyTrackerPtr = &RepChangedPropertyTrackerMap.Add( Obj, FRepChangedPropertyTrackerWrapper( Obj, TSharedPtr<FRepChangedPropertyTracker>( Tracker ) ) );
+ | | | | | | | | | | | | | | | | | | | | | | | |--RepState = LocalRepLayout.CreateRepState(Source, RepChangedPropertyTracker, Flags);
+ | | | | | | | | | | | | | | | | | | | | | | | | |--RebuildConditionalProperties(RepState->SendingRepState.Get(), FReplicationFlags());
+ | | | | | | | | | | | | | | | | | | | | | | | | |--RepState->SendingRepState->InactiveParents.Init(false, Parents.Num());
+ | | | | | | | | | | | | | | | | | | | | | | | | |--FRepStateStaticBuffer StaticBuffer(AsShared());
+ | | | | | | | | | | | | | | | | | | | | | | | | |--if (!bIsServer)
+ | | | | | | | | | | | | | | | | | | | | | | | | |--{
+ | | | | | | | | | | | | | | | | | | | | | | | | |--	InitRepStateStaticBuffer(StaticBuffer, Source);
+ | | | | | | | | | | | | | | | | | | | | | | | | |--}
+ | | | | | | | | | | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | | | | | | | | | |--RepState->ReceivingRepState.Reset(new FReceivingRepState(MoveTemp(StaticBuffer)));
+ | | | | | | | | | | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | | | | | | | |--Connection->Driver->AllOwnedReplicators.Add(this);
+ | | | | | | | | | | | | | | | | | | | | |--TSharedRef<FObjectReplicator>& NewRef = ReplicationMap.Add(Obj, NewReplicator.ToSharedRef());
+ | | | | | | | | | | | | | | | | | | | | |--Connection->DormantReplicatorMap.Remove(Obj);
+ | | | | | | | | | | | | | | | | | | | | |--NewRef->StartReplicating(this);
+ | | | | | | | | | | | | | | | | | | | | | |--ChangelistMgr = WorldNetDriver->GetReplicationChangeListMgr(Object);
+ | | | | | | | | | | | | | | | | | | | | | | |--const TSharedPtr<const FRepLayout> RepLayout = GetObjectClassRepLayout(Object->GetClass());
+ | | | | | | | | | | | | | | | | | | | | | | |--FReplicationChangelistMgrWrapper Wrapper(Object, RepLayout->CreateReplicationChangelistMgr(Object, GetCreateReplicationChangelistMgrFlags()));
+ | | | | | | | | | | | | | | | | | | | | | | | |--return MakeShareable(new FReplicationChangelistMgr(AsShared(), ShadowStateSource, InObject, DeltaChangelistState));
+ | | | | | | | | | | | | | | | | | | | | | | | |--FReplicationChangelistMgr::FReplicationChangelistMgr(const TSharedRef<const FRepLayout>& InRepLayout,const uint8* InSource,const UObject* InRepresenting,FCustomDeltaChangelistState* DeltaChangelistState)
+ | | | | | | | | | | | | | | | | | | | | | | | | |--FRepChangelistState::FRepChangelistState()
+ | | | | | | | | | | | | | | | | | | | | | | | | | |--InRepLayout->CreateShadowBuffer(InSource)
+ | | | | | | | | | | | | | | | | | | | | | | | | | | |--InitRepStateStaticBuffer(ShadowData, Source);
+ | | | | | | | | | | | | | | | | | | | | | | |--ReplicationChangeListMgrPtr = &ReplicationChangeListMap.Add(Object, Wrapper);
+ | | | | | | | | | | | | | | | | | | | |--if (!EnumHasAnyFlags(Flags, ESetChannelActorFlags::SkipMarkActive))
+ | | | | | | | | | | | | | | | | | | | |--{
+ | | | | | | | | | | | | | | | | | | | |--	// Remove from connection's dormancy lists
+ | | | | | | | | | | | | | | | | | | | |--	Connection->Driver->GetNetworkObjectList().MarkActive(Actor, Connection, Connection->Driver);
+ | | | | | | | | | | | | | | | | | | | |--	Connection->Driver->GetNetworkObjectList().ClearRecentlyDormantConnection(Actor, Connection, Connection->Driver);
+ | | | | | | | | | | | | | | | | | | | |--}
+ | | | | | | | | | | | | | | | | | | |--UNetDriver.ProcessRemoteFunctionForChannelPrivate()
+ | | | | | | | | | | | | | | | | | | | |--Ch->ReplicateActor();
+ | | | | | | | | | | | | | | | | | | | | |--WroteSomethingImportant |= ActorReplicator->ReplicateProperties(Bunch, RepFlags);
+ | | | | | | | | | | | | | | | | | | | | | |--const ERepLayoutResult UpdateResult = FNetSerializeCB::UpdateChangelistMgr(*RepLayout, SendingRepState, *ChangelistMgr, Object, Connection->Driver->ReplicationFrame, RepFlags, OwningChannel->bForceCompareProperties || bUseCheckpointRepState);
+ | | | | | | | | | | | | | | | | | | | | | | |--return RepLayout.UpdateChangelistMgr(RepState, InChangelistMgr, InObject, ReplicationFrame, RepFlags, bForceCompare);
+ | | | | | | | | | | | | | | | | | | | | | | | |--Result = CompareProperties(RepState, &InChangelistMgr.RepChangelistState, (const uint8*)InObject, RepFlags);
+ | | | | | | | | | | | | | | | | | | | | | |--const bool bHasRepLayout = RepLayout->ReplicateProperties(SendingRepState, ChangelistMgr->GetRepChangelistState(), (uint8*)Object, ObjectClass, OwningChannel, Writer, RepFlags);
+ | | | | | | | | | | | | | | | | | | | | | |--FObjectReplicator.ReplicateCustomDeltaProperties(Writer, RepFlags);
+ | | | | | | | | | | | | | | | | | | | | |--WroteSomethingImportant |= Actor->ReplicateSubobjects(this, &Bunch, &RepFlags);
+ | | | | | | | | | | | | | | | | | | | | | |--for (UActorComponent* ActorComp : ReplicatedComponents)
+ | | | | | | | | | | | | | | | | | | | | | |--{
+ | | | | | | | | | | | | | | | | | | | | | |--	if (ActorComp && ActorComp->GetIsReplicated())
+ | | | | | | | | | | | | | | | | | | | | | |--	{
+ | | | | | | | | | | | | | | | | | | | | | |--		WroteSomething |= ActorComp->ReplicateSubobjects(Channel, Bunch, RepFlags);	
+ | | | | | | | | | | | | | | | | | | | | | |--		WroteSomething |= Channel->ReplicateSubobject(ActorComp, *Bunch, *RepFlags);
+ | | | | | | | | | | | | | | | | | | | | | | |--TSharedRef<FObjectReplicator>& ObjectReplicator = FindOrCreateReplicator(Obj, &bCreatedReplicator);
+ | | | | | | | | | | | | | | | | | | | | | | |--bool WroteSomething = ObjectReplicator.Get().ReplicateProperties(Bunch, RepFlags);
+ | | | | | | | | | | | | | | | | | | | | | |--	}
+ | | | | | | | | | | | | | | | | | | | | | |--}
+ | | | | | | | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | | | | | | |--
+ 
+
 
 
 
@@ -1279,7 +1353,7 @@ UNetDriver.TickFlush()
 
 
 
-// 在第一次调用RPC函数时, 如果没有创建对应的Replicator, 会触发Replicator的创建流程
+// 在第一次调用RPC函数时, 如果没有创建对应的Replicator, 会触发Replicator的创建流程, 以及第一次属性对比
 //创建流程如下
 --APlayerController::ClientSetHUD()
  |--AActor.ProcessEvent()
@@ -1314,8 +1388,117 @@ UNetDriver.TickFlush()
  | | | | | | | | | | |--FRepLayout.UpdateChangelistMgr() 
  | | | | | | | | | | | |--FRepLayout.CompareProperties()
  | | | | | | | | | | | | |--RepChangelistState->CompareIndex++;
+ | | | | | | | | | | | | |--TArray<uint16>& Changed = NewHistoryItem.Changed;
+ | | | | | | | | | | | | |--Changed.Empty(1);
+ | | | | | | | | | | | | |--CompareParentProperties()
+ | | | | | | | | | | | | | |--CompareParentProperty(ParentIndex, SharedParams, StackParams);
+ | | | | | | | | | | | | | | |--UE4_RepLayout_Private.CompareParentPropertyHelper()
+ | | | | | | | | | | | | | | | |--CompareParentProperty(ParentIndex, SharedParams, StackParams);
+ | | | | | | | | | | | | | | | | |--CompareProperties_r(SharedParams, StackParams, Parent.CmdStart, Parent.CmdEnd, Cmd.RelativeHandle - 1);
+ | | | | | | | | | | | | | | | | | |--for (int32 CmdIndex = CmdStart; CmdIndex < CmdEnd; ++CmdIndex)
+ | | | | | | | | | | | | | | | | | |--{
+ | | | | | | | | | | | | | | | | | |--	const FRepLayoutCmd& Cmd = SharedParams.Cmds[CmdIndex];
+ | | | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | | |--	check(Cmd.Type != ERepLayoutCmdType::Return);
+ | | | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | | |--	++Handle;
+ | | | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | | |--	const FConstRepObjectDataBuffer Data = StackParams.Data + Cmd;
+ | | | | | | | | | | | | | | | | | |--	FRepShadowDataBuffer ShadowData = StackParams.ShadowData + Cmd;
+ | | | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | | |--	if (Cmd.Type == ERepLayoutCmdType::DynamicArray)
+ | | | | | | | | | | | | | | | | | |--	{
+ | | | | | | | | | | | | | | | | | |--		FComparePropertiesStackParams NewStackParams{
+ | | | | | | | | | | | | | | | | | |--			Data,
+ | | | | | | | | | | | | | | | | | |--			ShadowData,
+ | | | | | | | | | | | | | | | | | |--			StackParams.Changed,
+ | | | | | | | | | | | | | | | | | |--			StackParams.Result
+ | | | | | | | | | | | | | | | | | |--		};
+ | | | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | | |--		// Once we hit an array, start using a stack based approach
+ | | | | | | | | | | | | | | | | | |--		CompareProperties_Array_r(SharedParams, NewStackParams, CmdIndex, Handle);
+ | | | | | | | | | | | | | | | | | |--		CmdIndex = Cmd.EndCmd - 1;		// The -1 to handle the ++ in the for loop
+ | | | | | | | | | | | | | | | | | |--		continue;
+ | | | | | | | | | | | | | | | | | |--	}
+ | | | | | | | | | | | | | | | | | |--	else if (SharedParams.bForceFail || !PropertiesAreIdentical(Cmd, ShadowData.Data, Data.Data, SharedParams.NetSerializeLayouts))
+ | | | | | | | | | | | | | | | | | |--	{
+ | | | | | | | | | | | | | | | | | |--		StoreProperty(Cmd, ShadowData.Data, Data.Data);
+ | | | | | | | | | | | | | | | | | |--		StackParams.Changed.Add(Handle);
+ | | | | | | | | | | | | | | | | | |--	}
+ | | | | | | | | | | | | | | | | | |--}
+ | | | | | | | | | | | | |--Changed.Add(0);
  | | | | | | | | | | | | |--
  | | | | | | | | | | | | |--
+ | | | | | | | | | | | | |--
+ | | | | | | | | | | | |--InChangelistMgr.LastReplicationFrame = ReplicationFrame;
+ | | | | | | | | | | | |--if (GShareInitialCompareState && RepFlags.bNetInitial)
+ | | | | | | | | | | | |--{
+ | | | | | | | | | | | |--	InChangelistMgr.LastInitialReplicationFrame = ReplicationFrame;
+ | | | | | | | | | | | |--}
+ | | | | | | | | | | | |--
+ | | | | | | | | | | | |--
+ | | | | | | | | | | | |--
+ | | | | | | | | | | | |--
+ | | | | | | | | | | | |--
+ | | | | | | | | | | | |--
+ | | | | | | | | | |--ReplicateCustomDeltaProperties(Writer, RepFlags);
+
+
+
+属性对比堆栈:
+--APlayerController::ClientSetHUD()
+ |--AActor.ProcessEvent()
+ | |--UObject.ProcessEvent()
+ | | |--AActor.CallRemoteFunction()
+ | | | |--UNetDriver.ProcessRemoteFunction()
+ | | | | |--UNetDriver.InternalProcessRemoteFunction()
+ | | | | | |--UNetDriver.InternalProcessRemoteFunctionPrivate()
+ | | | | | | |--UNetDriver.ProcessRemoteFunctionForChannelPrivate()
+ | | | | | | | |--Ch->ReplicateActor();
+ | | | | | | | | |--WroteSomethingImportant |= ActorReplicator->ReplicateProperties(Bunch, RepFlags);
+ | | | | | | | | | |--FNetSerializeCB::UpdateChangelistMgr(*RepLayout, SendingRepState, *ChangelistMgr, Object, Connection->Driver->ReplicationFrame, RepFlags, OwningChannel->bForceCompareProperties || bUseCheckpointRepState);
+ | | | | | | | | | | |--FRepLayout.UpdateChangelistMgr() 
+ | | | | | | | | | | | |--FRepLayout.CompareProperties()
+ | | | | | | | | | | | | |--RepChangelistState->CompareIndex++;
+ | | | | | | | | | | | | |--TArray<uint16>& Changed = NewHistoryItem.Changed;
+ | | | | | | | | | | | | |--Changed.Empty(1);
+ | | | | | | | | | | | | |--CompareParentProperties()
+ | | | | | | | | | | | | | |--CompareParentProperty(ParentIndex, SharedParams, StackParams);
+ | | | | | | | | | | | | | | |--UE4_RepLayout_Private.CompareParentPropertyHelper()
+ | | | | | | | | | | | | | | | |--CompareParentProperty(ParentIndex, SharedParams, StackParams);
+ | | | | | | | | | | | | | | | | |--CompareProperties_r(SharedParams, StackParams, Parent.CmdStart, Parent.CmdEnd, Cmd.RelativeHandle - 1);
+ | | | | | | | | | | | | | | | | | |--for (int32 CmdIndex = CmdStart; CmdIndex < CmdEnd; ++CmdIndex)
+ | | | | | | | | | | | | | | | | | |--{
+ | | | | | | | | | | | | | | | | | |--	const FRepLayoutCmd& Cmd = SharedParams.Cmds[CmdIndex];
+ | | | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | | |--	check(Cmd.Type != ERepLayoutCmdType::Return);
+ | | | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | | |--	++Handle;
+ | | | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | | |--	const FConstRepObjectDataBuffer Data = StackParams.Data + Cmd;
+ | | | | | | | | | | | | | | | | | |--	FRepShadowDataBuffer ShadowData = StackParams.ShadowData + Cmd;
+ | | | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | | |--	if (Cmd.Type == ERepLayoutCmdType::DynamicArray)
+ | | | | | | | | | | | | | | | | | |--	{
+ | | | | | | | | | | | | | | | | | |--		FComparePropertiesStackParams NewStackParams{
+ | | | | | | | | | | | | | | | | | |--			Data,
+ | | | | | | | | | | | | | | | | | |--			ShadowData,
+ | | | | | | | | | | | | | | | | | |--			StackParams.Changed,
+ | | | | | | | | | | | | | | | | | |--			StackParams.Result
+ | | | | | | | | | | | | | | | | | |--		};
+ | | | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | | |--		// Once we hit an array, start using a stack based approach
+ | | | | | | | | | | | | | | | | | |--		CompareProperties_Array_r(SharedParams, NewStackParams, CmdIndex, Handle);
+ | | | | | | | | | | | | | | | | | |--		CmdIndex = Cmd.EndCmd - 1;		// The -1 to handle the ++ in the for loop
+ | | | | | | | | | | | | | | | | | |--		continue;
+ | | | | | | | | | | | | | | | | | |--	}
+ | | | | | | | | | | | | | | | | | |--	else if (SharedParams.bForceFail || !PropertiesAreIdentical(Cmd, ShadowData.Data, Data.Data, SharedParams.NetSerializeLayouts))
+ | | | | | | | | | | | | | | | | | |--	{
+ | | | | | | | | | | | | | | | | | |--		StoreProperty(Cmd, ShadowData.Data, Data.Data);
+ | | | | | | | | | | | | | | | | | |--		StackParams.Changed.Add(Handle);
+ | | | | | | | | | | | | | | | | | |--	}
+ | | | | | | | | | | | | | | | | | |--}
+ | | | | | | | | | | | | |--Changed.Add(0);
  | | | | | | | | | | | | |--
  | | | | | | | | | | | | |--
  | | | | | | | | | | | | |--
@@ -1335,5 +1518,340 @@ UNetDriver.TickFlush()
 
 
 
+--UNetDriver.TickFlush()
+ |--UNetDriver.ServerReplicateActors()
+ | |-- // 如果开启ReplicationGraph, 则使用ReplicationDriver进行处理
+ | |--if (ReplicationDriver)
+ | |--{
+ | |--	return ReplicationDriver->ServerReplicateActors(DeltaSeconds);
+ | |--}
+ | |--
+ | |--TArray<FNetworkObjectInfo*> ConsiderList;
+ | |--ConsiderList.Reserve( GetNetworkObjectList().GetActiveObjects().Num() );
+ | |--
+ | |--ServerReplicateActors_BuildConsiderList( ConsiderList, ServerTickTime );
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--ReplicationFrame++;
+ | |--const int32 NumClientsToTick = ServerReplicateActors_PrepConnections( DeltaSeconds );
+ | |--
+ | |--for ( int32 i=0; i < ClientConnections.Num(); i++ )
+ | |--{
+ | |-- const int32 FinalSortedCount = ServerReplicateActors_PrioritizeActors( Connection, ConnectionViewers, ConsiderList, bCPUSaturated, PriorityList, PriorityActors );
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | |--
+ | | |--
+ | | | |--
+ | | | | |--
+ | | | | | |--
+ | | | | | | |--
+ | | | | | | | |--
+ | | | | | | | | |--
+ | | | | | | | | | |--
+ | | | | | | | | | | |--
+ | | | | | | | | | | | |--
+ | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | | |--
+ 
+ 
+ 
+ 
+ 
+// ReplicationGraph添加Connection
+UWorld.Tick()
+--UWorld.BroadcastTickDispatch()
+|--UIpNetDriver.TickDispatch()
+| |--UIpNetDriver.ProcessConnectionlessPacket()
+| | |--PacketHandler.IncomingConnectionless()
+| | | |--PacketHandler.Incoming_Internal()
+| | | | |--StatelessConnectHandlerComponent.IncomingConnectionless()
+| | | | | |--StatelessConnectHandlerComponent.ParseHandshakePacket()
+| | | | | |--bChallengeSuccess = FMemory::Memcmp(Cookie, RegenCookie, COOKIE_BYTE_SIZE) == 0; // 服务器校验客户端发来的Cookie
+| | | | | |--LastChallengeSuccessAddress = Address->Clone();
+| | | | | |--int16* CurSequence = (int16*)Cookie;
+| | | | | |--LastServerSequence = *CurSequence & (MAX_PACKETID - 1); // 初始化ServerSequenceID
+| | | | | |--LastClientSequence = *(CurSequence + 1) & (MAX_PACKETID - 1); // 设置ClientSequenceID
+| | | | | |--StatelessConnectHandlerComponent.SendChallengeAck()
+| | |--StatelessConnect->HasPassedChallenge() //StatelessConnectHandlerComponent.HasPassedChallenge()
+| | |--NewObject<UIpConnection>(); // 创建UIpConnection.
+| | |--ReturnVal->InitRemoteConnection(..., USOCK_Open);// 初始化UIpConnection. UIpConnection::InitRemoteConnection()
+| | | |--UIpConnection.InitBase()
+| | | | |--UNetConnection.InitBase()
+| | | | | |--UNetConnection.State=USOCK_Open. // 这里设置State为Open,等待客户端发来NMT_Hello时进行状态检测.
+| | | | |--UNetConnection.InitSendBuffer() //初始化SendBuffer
+| | | | |--UNetConnection.SetClientLoginState(EClientLoginState::LoggingIn) // 设置login状态为LoggingIn
+| | | | |--UNetConnection.SetExpectedClientLoginMsgType(NMT_Hello) // 设置期望消息为:NMT_Hello
+| | |--UNetDriver.AddClientConnection() //添加到ClientConnections中
+| | | |--ReplicationDriver->AddClientConnection(NewConnection);
+| | | | |--UReplicationGraph.Connections.Add(CreateClientConnectionManagerInternal(NetConnection));
 
+
+
+//ReplicationGraph移除Connection
+--UIpConnection.CleanUp()
+ |--UNetConnection.CleanUp()
+ | |--ReplicationDriver->RemoveClientConnection(ClientConnectionToRemove);
+ | | |--UReplicationGraph::RemoveClientConnection()
+ | | | |--UNetReplicationGraphConnection* ActiveGraphConnectionRemoved = FixGraphConnectionList(Connections, ConnectionNum, NetConnection);
+ | | | |--UNetReplicationGraphConnection* PendingGraphConnectionRemoved = FixGraphConnectionList(PendingConnections, ConnectionNum, NetConnection);
+ | | | |--if (ActiveGraphConnectionRemoved)
+ | | | |--{
+ | | | |--	ActiveGraphConnectionRemoved->TearDown();
+ | | | |--	ensure(PendingGraphConnectionRemoved == nullptr);
+ | | | |--}
+ | | | |--
+ | | | |--if (PendingGraphConnectionRemoved)
+ | | | |--{
+ | | | |--	PendingGraphConnectionRemoved->TearDown();
+ | | | |--	ensure(ActiveGraphConnectionRemoved == nullptr);
+ | | | |--}
+
+ 
+ 
+ 
+ 
+ 
+// 发送Bunch时候, 会将
+
+
+
+
+
+
+
+//动态创建的UObject通过Outer进行查找, 并和其对应的GUID进行绑定.
+--UActorChannel.ProcessQueuedBunches()
+ |--UActorChannel::ReadContentBlockPayload()
+ | |--UActorChannel.ReadContentBlockHeader()
+ | | |--UPackageMapClient.SerializeObject()
+ | | | |--UPackageMapClient.InternalLoadObject()
+ | | | | |--FNetGUIDCache.GetObjectFromNetGUID()
+ | | | | | |--StaticFindObject()
+ | | | | | | |--StaticFindObjectFast()
+ | | | | | | | |--StaticFindObjectFastInternal()
+ | | | | | | | | |--StaticFindObjectFastInternalThreadSafe()
+ | | | | | | | | | |--
+ | | | | | | | | | | |--
+ | | | | | | | | | | | |--
+ | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | | |--
+
+
+
+
+//静态GUID怎么查找对应Object并和其对应的GUID进行绑定.
+--UPackageMapClient.ReceiveNetGUIDBunch() 
+|--UPackageMapClient.InternalLoadObject()
+| |--UPackageMapClient.InternalLoadObject()
+| | |--UPackageMapClient.InternalLoadObject()
+| | | |--UPackageMapClient.InternalLoadObject()
+| | | | |--FNetGUIDCache.GetObjectFromNetGUID()
+| | | | | |--StaticFindObject()
+| | | | | | |--StaticFindObjectFast()
+| | | | | | | |--StaticFindObjectFastInternal()
+| | | | | | | | |--StaticFindObjectFastInternalThreadSafe()
+
+
+
+// 将NetGUID序列化到UPackageMapClient.CurrentExportBunch中
+--UActorChannel.ReplicateActor()
+ |--UPackageMapClient.SerializeNewActor()
+ | |--UPackageMapClient.SerializeObject()
+ | | |--UPackageMapClient.ExportNetGUID()
+
+
+
+
+
+
+
+--UActorChannel.ReplicateActor()
+ |--UChannel.SendBunch()
+ | |--UActorChannel.AppendExportBunches()
+ | | |--UChannel.AppendExportBunches()
+ | | | |--UPackageMapClient.AppendExportBunches()
+ | | | | |--UPackageMapClient.ExportNetGUIDHeader()
+
+
+
+UNetDriver.TickFlush()
+--UNetDriver.ServerReplicateActors()
+ |--UNetDriver.ServerReplicateActors_ProcessPrioritizedActors()
+ | |--UActorChannel.ReplicateActor()
+ | | |--FObjectReplicator.ReplicateProperties()
+ | | | |--FNetSerializeCB.UpdateChangelistMgr()
+ | | | | |--FRepLayout.UpdateChangelistMgr()
+ | | | | | |--FRepLayout.CompareProperties()
+ | | | | | | |--CompareParentProperties()
+ | | | | | | | |--UE4_RepLayout_Private.CompareParentPropertyHelper()
+ | | | | | | | | |--CompareParentProperty()
+ | | | | | | | | | |--CompareProperties_r()
+ | | | | | | | | | | |--CompareProperties_Array_r()
+ | | | | | | | | | | | |--CompareProperties_r()
+ | | | | | | | | | | | | |--CompareProperties_Array_r()
+ | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | | |--
+
+
+// pushmodel重置Dirty
+--UNetDriver.TickFlush()
+ |--UNetDriver.ServerReplicateActors()
+ | |--UNetDriver.ServerReplicateActors_ProcessPrioritizedActors()
+ | | |--UActorChannel.ReplicateActor()
+ | | | |--FObjectReplicator.ReplicateProperties()
+ | | | | |--FNetSerializeCB.UpdateChangelistMgr()
+ | | | | | |--FRepLayout.UpdateChangelistMgr()
+ | | | | | | |--FRepLayout.CompareProperties()
+ | | | | | | | |--CompareParentProperties()
+ | | | | | | | | |--UE4_RepLayout_Private.IsPropertyDirty()
+ | | | | | | | | | |--SharedParams.PushModelState->IsPropertyDirty(ParentIndex)
+ | | | | | | | | |--SharedParams.PushModelState->ResetDirtyStates();
+
+
+//同时开启WithNetSerializer和WithNetSharedSerialization时候, 执行NetSerialize的堆栈. 例如:FRepMovement
+--UNetDriver.TickFlush() 
+ |--UNetDriver.ServerReplicateActors()
+ | |--UNetDriver.ServerReplicateActors_ProcessPrioritizedActors()
+ | | |--UActorChannel.ReplicateActor()
+ | | | |--FObjectReplicator.ReplicateProperties()
+ | | | | |--FRepLayout.ReplicateProperties()
+ | | | | | |--FRepLayout.BuildSharedSerialization()
+ | | | | | | |--FRepLayout.BuildSharedSerialization_r()
+ | | | | | | | |--FRepSerializationSharedInfo.WriteSharedProperty()
+ | | | | | | | | |--FStructProperty.NetSerializeItem()
+ | | | | | | | | | |--FRepMovement.NetSerialize()
+
+
+//当收到消息时候, 解析FRepMovement
+--UIpNetDriver.TickDispatch.for()
+ |--UNetConnection.ReceivedRawPacket()
+ | |--UNetConnection.ReceivedPacket()
+ | | |--UChannel.ReceivedRawBunch()
+ | | | |--UChannel.ReceivedNextBunch()
+ | | | | |--UChannel.ReceivedSequencedBunch()
+ | | | | | |--UActorChannel.ReceivedBunch()
+ | | | | | | |--UActorChannel.ProcessBunch()
+ | | | | | | | |--FObjectReplicator.ReceivedBunch()
+ | | | | | | | | |--FRepLayout.ReceiveProperties()
+ | | | | | | | | | |--ReceiveProperties_r()
+ | | | | | | | | | | |--ReceivePropertyHelper()
+ | | | | | | | | | | | |--FStructProperty.NetSerializeItem()
+ | | | | | | | | | | | | |--FRepMovement.NetSerialize()
+
+
+
+
+//在发送RPC时候序列化对应Struct, FCharacterNetworkSerializationPackedBits只开启了WithNetSerializer
+--FRepLayout.SendPropertiesForRPC() 
+ |--FRepLayout.SerializeProperties_r()
+ | |--FStructProperty.NetSerializeItem()
+ | | |--FCharacterNetworkSerializationPackedBits::NetSerialize()
+
+
+
+//序列化流程
+--UNetDriver.TickFlush()
+ |--UNetDriver.ServerReplicateActors()
+ | |--UNetDriver.ServerReplicateActors_ProcessPrioritizedActors()
+ | | |--UActorChannel.ReplicateActor()
+ | | | |--FObjectReplicator.ReplicateProperties()
+ | | | | |--FRepLayout.ReplicateProperties()
+
+ | | | | | |--FRepLayout.BuildSharedSerialization()
+ | | | | | |--FRepLayout.SendProperties()
+ | | | | | | |--FRepLayout.SendProperties_r()
+ | | | | | | | |--FStructProperty.NetSerializeItem()
+ | | | | | | | | |--FExampleStruct.NetSerialize()
+ 
+ | | | | | |--FRepLayout.SendProperties()
+ | | | | | | |--FRepLayout.SendProperties_r()
+ | | | | | | | |--FStructProperty.NetSerializeItem()
+ | | | | | | | | |--FExampleStruct.NetSerialize()
+ 
+ | | | | |--FObjectReplicator.ReplicateCustomDeltaProperties()
+ | | | | | |--FObjectReplicator.SendCustomDeltaProperty()
+ | | | | | | |--FNetSerializeCB.SendCustomDeltaProperty()
+ | | | | | | | |--FRepLayout.SendCustomDeltaProperty()
+ | | | | | | | | |--FExampleArray.NetDeltaSerialize()
+ 
+ | | | |--UChannel.SendBunch()
+ | | | | |--UActorChannel.AppendExportBunches()
+ | | | | | |--UChannel.AppendExportBunches()
+ | | | | | | |--UPackageMapClient.AppendExportBunches()
+ | | | | | | | |--UPackageMapClient.ExportNetGUIDHeader()
+
+
+//序列化流程
+--UNetDriver.TickFlush()
+ |--FObjectReplicator.UpdateUnmappedObjects()
+ | |--FObjectReplicator.UpdateGuidToReplicatorMap()
+ | | |--FRepLayout.GatherGuidReferences()
+ | | | |--FExampleArray.NetDeltaSerialize()
+
+
+
+
+
+// 
+--
+ |--
+ | |--
+ | | |--
+ | | | |--
+ | | | | |--
+ | | | | | |--
+ | | | | | | |--
+ | | | | | | | |--
+ | | | | | | | | |--
+ | | | | | | | | | |--
+ | | | | | | | | | | |--
+ | | | | | | | | | | | |--
+ | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | |--
+ | | | | | | | | | | | | | | | | | |--
 

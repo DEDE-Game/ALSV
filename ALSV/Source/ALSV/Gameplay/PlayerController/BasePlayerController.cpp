@@ -1,11 +1,16 @@
 #include "BasePlayerController.h"
 #include "Net/UnrealNetwork.h"
+#include "Containers/SparseArray.h"
+#include "Net/Core/PushModel/PushModel.h"
 
 
 ABasePlayerController::ABasePlayerController(const FObjectInitializer& ObjectInitializer /*= FObjectInitializer::Get()*/)
 : APlayerController(ObjectInitializer)
 {
 	bShowMouseCursor = true;
+
+	TestReplicationComp1 = CreateDefaultSubobject<UTestReplicationComp>(TEXT("TestReplicationComp1"));
+	TestReplicationComp2 = CreateDefaultSubobject<UTestReplicationComp>(TEXT("TestReplicationComp2"));
 }
 
 void ABasePlayerController::Tick(float DeltaSeconds)
@@ -16,10 +21,14 @@ void ABasePlayerController::Tick(float DeltaSeconds)
 	{
 		++LocalControllerNumber;
 		ChangeControllerNumber(LocalControllerNumber);
+
 	}
 
 	if (GetLocalRole() == ENetRole::ROLE_Authority)
 	{
+		TestSparseArray();
+		TestFastArray();
+
 		if (pTestObj==nullptr)
 		{
 			pTestObj = NewObject<UMyTestObject>(this, UMyTestObject::StaticClass());
@@ -134,6 +143,22 @@ void ABasePlayerController::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>
 	DOREPLIFETIME(ABasePlayerController, pTestObj);
 	DOREPLIFETIME(ABasePlayerController, TestData);
 	DOREPLIFETIME(ABasePlayerController, TestDataList);
+
+	FDoRepLifetimeParams SharedParams;
+	SharedParams.bIsPushBased = true;
+	DOREPLIFETIME_WITH_PARAMS_FAST(ABasePlayerController, ExampleFastArray, SharedParams);
+	DOREPLIFETIME_WITH_PARAMS_FAST(ABasePlayerController, ExampleStruct, SharedParams);
+	DOREPLIFETIME_WITH_PARAMS_FAST(ABasePlayerController, ExampleStruct1, SharedParams);
+}
+
+bool ABasePlayerController::ReplicateSubobjects(UActorChannel* Channel, FOutBunch* Bunch, FReplicationFlags* RepFlags)
+{
+	bool bWroteSomething = Super::ReplicateSubobjects(Channel, Bunch, RepFlags);
+
+	// Single Object
+	bWroteSomething |= Channel->ReplicateSubobject(pTestObj, *Bunch, *RepFlags);
+
+	return bWroteSomething;
 }
 
 void ABasePlayerController::ChangeControllerNumber_Implementation(int32 InNumber)
@@ -141,9 +166,65 @@ void ABasePlayerController::ChangeControllerNumber_Implementation(int32 InNumber
 	TestControllerNumber = InNumber;
 }
 
+void ABasePlayerController::TestSparseArray()
+{
+
+
+}
+
+void ABasePlayerController::TestFastArray()
+{
+	++ExampleStruct.ExampleIntProperty;
+	MARK_PROPERTY_DIRTY_FROM_NAME(ABasePlayerController, ExampleStruct, this);
+
+	++ExampleStruct1.ExampleIntProperty;
+	MARK_PROPERTY_DIRTY_FROM_NAME(ABasePlayerController, ExampleStruct1, this);
+
+	if (bAddFastArrayItem)
+	{
+		FExampleItemEntry Item;
+		Item.ExampleFloatProperty = 1;
+		Item.ExampleFloatProperty = 2;
+		int32 ItemIndex = ExampleFastArray.Items.Add(Item);
+		ExampleFastArray.MarkItemDirty(ExampleFastArray.Items[ItemIndex]);
+		if (ExampleFastArray.Items.Num()>=5)
+		{
+			bAddFastArrayItem = false;
+		}
+	}
+	else
+	{
+		if (ExampleFastArray.Items.Num()>0)
+		{
+			ExampleFastArray.Items.RemoveAt(0);
+			ExampleFastArray.MarkArrayDirty();
+		}
+
+		if (ExampleFastArray.Items.Num()==0)
+		{
+			bAddFastArrayItem = true;
+		}
+	}
+}
+
 void ABasePlayerController::OnRep_ControllerNumberChanged()
 {
 	DebugLogALSVPlayerController("OnRep_ControllerNumberChanged AuthorityID:[%d], LocalID[%d]", TestControllerNumber, LocalControllerNumber);
+}
+
+void ABasePlayerController::OnRep_ExampleFastArray()
+{
+	DebugLogALSVPlayerController("OnRep_ExampleFastArray");
+}
+
+void ABasePlayerController::OnRep_ExampleStruct()
+{
+	DebugLogALSVPlayerController("OnRep_ExampleStruct");
+}
+
+void ABasePlayerController::OnRep_ExampleStruct1()
+{
+	DebugLogALSVPlayerController("OnRep_ExampleStruct1");
 }
 
 void ABasePlayerController::OnRep_TestObj()

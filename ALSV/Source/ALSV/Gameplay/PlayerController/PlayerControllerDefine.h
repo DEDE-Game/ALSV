@@ -87,14 +87,17 @@ class UMyTestObject : public UObject
 public:
 	UMyTestObject(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
+public:
+	// Allows the Object to get a valid UWorld from it's outer.
+	virtual UWorld* GetWorld() const override;
+
+
 	virtual bool IsSupportedForNetworking() const override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
-	/** Allows a component to replicate other subobject on the actor  */
-	virtual bool ReplicateSubobjects(class UActorChannel* Channel, class FOutBunch* Bunch, FReplicationFlags* RepFlags);
 public:
 	UPROPERTY(Replicated)
-		uint32 bReplicatedFlag : 1;
+	uint32 bReplicatedFlag : 1;
 
 	UPROPERTY(BlueprintReadWrite)
 		TArray<FMyTestDataItem> ItemList;

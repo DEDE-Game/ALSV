@@ -10,6 +10,15 @@ UMyTestObject::UMyTestObject(const FObjectInitializer& ObjectInitializer /*= FOb
 
 }
 
+UWorld* UMyTestObject::GetWorld() const
+{
+	if (const UObject* MyOuter = GetOuter())
+	{
+		return MyOuter->GetWorld();
+	}
+	return nullptr;
+}
+
 bool UMyTestObject::IsSupportedForNetworking() const
 {
 	return true;
@@ -19,10 +28,5 @@ void UMyTestObject::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLif
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(UMyTestObject, bReplicatedFlag);
-}
-
-bool UMyTestObject::ReplicateSubobjects(class UActorChannel* Channel, class FOutBunch* Bunch, FReplicationFlags* RepFlags)
-{
-	return true;
 }
 

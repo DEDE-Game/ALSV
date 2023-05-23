@@ -9,6 +9,7 @@
 #include "GameFramework/Controller.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "Net/UnrealNetwork.h"
+#include "Net/Core/PushModel/PushModel.h"
 
 //////////////////////////////////////////////////////////////////////////
 // AALSVCharacter
@@ -97,13 +98,17 @@ void AALSVCharacter::TickActor(float DeltaSeconds, ELevelTick TickType, FActorTi
 void AALSVCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-	DOREPLIFETIME(AALSVCharacter, TestCharacterNumber);
+
+	FDoRepLifetimeParams SharedParams;
+	SharedParams.bIsPushBased = true;
+	DOREPLIFETIME_WITH_PARAMS_FAST(AALSVCharacter, TestCharacterNumber, SharedParams);
 }
 
 
 void AALSVCharacter::ChangeCharacterNumber_Implementation(int32 InNumber)
 {
 	TestCharacterNumber = InNumber;
+	MARK_PROPERTY_DIRTY_FROM_NAME(AALSVCharacter, TestCharacterNumber, this);
 }
 
 

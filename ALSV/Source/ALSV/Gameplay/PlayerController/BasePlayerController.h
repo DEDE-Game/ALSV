@@ -1,6 +1,8 @@
 #pragma once
 #include "GameFramework/PlayerController.h"
 #include "PlayerControllerDefine.h"
+#include "TestReplicationComp.h"
+#include "TestFastArray.h"
 
 #include "BasePlayerController.generated.h"
 
@@ -19,17 +21,44 @@ public:
 public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
+	virtual bool ReplicateSubobjects(UActorChannel* Channel, FOutBunch* Bunch, FReplicationFlags* RepFlags) override;
+
 public:
 	UFUNCTION(Server, Reliable)
 	void ChangeControllerNumber(int32 InNumber);
 
+	void TestSparseArray();
+	void TestFastArray();
+
+	bool bAddFastArrayItem = true;
+public:
+	UPROPERTY()
+	UTestReplicationComp *TestReplicationComp1;
+
+	UPROPERTY()
+		UTestReplicationComp* TestReplicationComp2;
 
 public:
 	UPROPERTY(ReplicatedUsing = OnRep_ControllerNumberChanged)
 		int32 TestControllerNumber = 0;
-
 	UFUNCTION()
 		void OnRep_ControllerNumberChanged();
+
+	UPROPERTY(ReplicatedUsing = OnRep_ExampleFastArray)
+		FExampleArray ExampleFastArray;
+	UFUNCTION()
+		void OnRep_ExampleFastArray();
+
+
+	UPROPERTY(ReplicatedUsing = OnRep_ExampleStruct)
+		FExampleStruct ExampleStruct;
+	UFUNCTION()
+		void OnRep_ExampleStruct();
+
+	UPROPERTY(ReplicatedUsing = OnRep_ExampleStruct1)
+		FExampleStruct1 ExampleStruct1;
+	UFUNCTION()
+		void OnRep_ExampleStruct1();
 
 public:
 	UPROPERTY(ReplicatedUsing = OnRep_TestObj)

@@ -20,7 +20,8 @@ public class ALSV : ModuleRules
 
         PublicDependencyModuleNames.AddRange(new string[] 
 		{ 
-			"Core", 
+			"Core",
+			"NetCore", 
 			"CoreUObject", 
 			"Engine", "InputCore", 
 			"HeadMountedDisplay"
