@@ -3,6 +3,8 @@
 #include "Containers/SparseArray.h"
 #include "Net/Core/PushModel/PushModel.h"
 #include "BaseCheatManager.h"
+#include "Engine/Canvas.h"
+#include "DisplayDebugHelpers.h"
 
 
 ABasePlayerController::ABasePlayerController(const FObjectInitializer& ObjectInitializer /*= FObjectInitializer::Get()*/)
@@ -143,6 +145,28 @@ void ABasePlayerController::AddCheats(bool bForce /*= false*/)
 {
 	CheatManager = NewObject<UCheatManager>(this, CheatClass);
 	CheatManager->InitCheatManager();
+}
+
+void ABasePlayerController::ClientSetHUD_Implementation(TSubclassOf<AHUD> NewHUDClass)
+{
+	Super::ClientSetHUD_Implementation(NewHUDClass);
+}
+
+void ABasePlayerController::DisplayDebug(class UCanvas* Canvas, const FDebugDisplayInfo& DebugDisplay, float& YL, float& YPos)
+{
+	// 使用ShowDebug命令
+	Super::DisplayDebug(Canvas, DebugDisplay, YL, YPos);
+
+	FDisplayDebugManager& DisplayDebugManager = Canvas->DisplayDebugManager;
+	{ // show debug test
+		static FName Test("Test");
+		if (DebugDisplay.IsDisplayOn(Test))
+		{
+			DisplayDebugManager.SetDrawColor(FColor::Red);
+			DisplayDebugManager.DrawString(FString(TEXT("<<<< Test >>>>")));
+		}
+	}
+	
 }
 
 void ABasePlayerController::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const

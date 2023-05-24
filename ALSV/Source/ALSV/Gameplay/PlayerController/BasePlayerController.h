@@ -3,6 +3,7 @@
 #include "PlayerControllerDefine.h"
 #include "TestReplicationComp.h"
 #include "TestFastArray.h"
+#include "GameFramework/HUD.h"
 
 #include "BasePlayerController.generated.h"
 
@@ -18,11 +19,17 @@ public:
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void TickActor(float DeltaSeconds, ELevelTick TickType, FActorTickFunction& ThisTickFunction) override;
 	
+public:
 	virtual void AddCheats(bool bForce = false) override;
+
+
+public:
+	virtual void ClientSetHUD_Implementation(TSubclassOf<AHUD> NewHUDClass) override;
+	virtual void DisplayDebug(class UCanvas* Canvas, const FDebugDisplayInfo& DebugDisplay, float& YL, float& YPos) override;
+
 
 public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
-
 	virtual bool ReplicateSubobjects(UActorChannel* Channel, FOutBunch* Bunch, FReplicationFlags* RepFlags) override;
 
 public:

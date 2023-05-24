@@ -71,8 +71,8 @@ void AALSVCharacter::SetupPlayerInputComponent(class UInputComponent* PlayerInpu
 	PlayerInputComponent->BindAxis("LookUpRate", this, &AALSVCharacter::LookUpAtRate);
 
 	// handle touch devices
-	PlayerInputComponent->BindTouch(IE_Pressed, this, &AALSVCharacter::TouchStarted);
-	PlayerInputComponent->BindTouch(IE_Released, this, &AALSVCharacter::TouchStopped);
+	//PlayerInputComponent->BindTouch(IE_Pressed, this, &AALSVCharacter::TouchStarted);
+	//PlayerInputComponent->BindTouch(IE_Released, this, &AALSVCharacter::TouchStopped);
 
 	// VR headset functionality
 	PlayerInputComponent->BindAction("ResetVR", IE_Pressed, this, &AALSVCharacter::OnResetVR);
