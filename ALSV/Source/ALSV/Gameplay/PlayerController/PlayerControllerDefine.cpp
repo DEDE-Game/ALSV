@@ -30,3 +30,26 @@ void UMyTestObject::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLif
 	DOREPLIFETIME(UMyTestObject, bReplicatedFlag);
 }
 
+bool UMyTestObject::CallRemoteFunction(UFunction* Function, void* Parameters, struct FOutParmRec* OutParams, FFrame* Stack)
+{
+	if (AActor* OuterActor = Cast<AActor>(GetOuter()))
+	{
+		UNetDriver* NetDriver = OuterActor->GetNetDriver();
+		if (NetDriver)
+		{
+			NetDriver->ProcessRemoteFunction(OuterActor, Function, Parameters, OutParams, Stack, this);
+			return true;
+		}
+	}
+	return false;
+}
+
+int32 UMyTestObject::GetFunctionCallspace(UFunction* Function, FFrame* Stack)
+{
+	if (AActor* OuterActor = Cast<AActor>(GetOuter()))
+	{
+		return OuterActor->GetFunctionCallspace(Function, Stack);
+	}
+
+	return FunctionCallspace::Local;
+}

@@ -2,6 +2,7 @@
 #include "Net/UnrealNetwork.h"
 #include "Containers/SparseArray.h"
 #include "Net/Core/PushModel/PushModel.h"
+#include "BaseCheatManager.h"
 
 
 ABasePlayerController::ABasePlayerController(const FObjectInitializer& ObjectInitializer /*= FObjectInitializer::Get()*/)
@@ -11,6 +12,8 @@ ABasePlayerController::ABasePlayerController(const FObjectInitializer& ObjectIni
 
 	TestReplicationComp1 = CreateDefaultSubobject<UTestReplicationComp>(TEXT("TestReplicationComp1"));
 	TestReplicationComp2 = CreateDefaultSubobject<UTestReplicationComp>(TEXT("TestReplicationComp2"));
+
+	CheatClass = UBaseCheatManager::StaticClass();
 }
 
 void ABasePlayerController::Tick(float DeltaSeconds)
@@ -136,6 +139,12 @@ void ABasePlayerController::TickActor(float DeltaSeconds, ELevelTick TickType, F
 	Super::TickActor(DeltaSeconds, TickType, ThisTickFunction);
 }
 
+void ABasePlayerController::AddCheats(bool bForce /*= false*/)
+{
+	CheatManager = NewObject<UCheatManager>(this, CheatClass);
+	CheatManager->InitCheatManager();
+}
+
 void ABasePlayerController::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
@@ -159,6 +168,11 @@ bool ABasePlayerController::ReplicateSubobjects(UActorChannel* Channel, FOutBunc
 	bWroteSomething |= Channel->ReplicateSubobject(pTestObj, *Bunch, *RepFlags);
 
 	return bWroteSomething;
+}
+
+void ABasePlayerController::Cmd_RPCToServerCmd_Implementation(const FString& InCmd)
+{
+	ConsoleCommand(InCmd, true);
 }
 
 void ABasePlayerController::ChangeControllerNumber_Implementation(int32 InNumber)

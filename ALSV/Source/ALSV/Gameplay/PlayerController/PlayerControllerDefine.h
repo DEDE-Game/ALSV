@@ -91,9 +91,13 @@ public:
 	// Allows the Object to get a valid UWorld from it's outer.
 	virtual UWorld* GetWorld() const override;
 
-
+	// allow replicate data
 	virtual bool IsSupportedForNetworking() const override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+	// allow rpc
+	int32 GetFunctionCallspace(UFunction* Function, FFrame* Stack);
+	bool CallRemoteFunction(UFunction* Function, void* Parameters, struct FOutParmRec* OutParams, FFrame* Stack);
 
 public:
 	UPROPERTY(Replicated)

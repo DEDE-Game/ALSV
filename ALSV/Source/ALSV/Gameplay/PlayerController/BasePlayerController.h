@@ -18,10 +18,16 @@ public:
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void TickActor(float DeltaSeconds, ELevelTick TickType, FActorTickFunction& ThisTickFunction) override;
 	
+	virtual void AddCheats(bool bForce = false) override;
+
 public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	virtual bool ReplicateSubobjects(UActorChannel* Channel, FOutBunch* Bunch, FReplicationFlags* RepFlags) override;
+
+public:
+	UFUNCTION(Server, Reliable)
+	void Cmd_RPCToServerCmd(const FString &InCmd);
 
 public:
 	UFUNCTION(Server, Reliable)

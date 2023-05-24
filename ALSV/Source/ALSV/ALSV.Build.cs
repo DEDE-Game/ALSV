@@ -23,7 +23,8 @@ public class ALSV : ModuleRules
 			"Core",
 			"NetCore", 
 			"CoreUObject", 
-			"Engine", "InputCore", 
+			"Engine", 
+			"InputCore", 
 			"HeadMountedDisplay"
 		});
 	}
