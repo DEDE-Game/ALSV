@@ -1712,7 +1712,7 @@ UWorld.Tick()
  | | | | |--UPackageMapClient.ExportNetGUIDHeader()
 
 
-
+//属性对比
 UNetDriver.TickFlush()
 --UNetDriver.ServerReplicateActors()
  |--UNetDriver.ServerReplicateActors_ProcessPrioritizedActors()

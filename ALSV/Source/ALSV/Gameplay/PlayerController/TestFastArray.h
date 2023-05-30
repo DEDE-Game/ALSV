@@ -47,9 +47,9 @@ struct TStructOpsTypeTraits< FExampleStruct > : public TStructOpsTypeTraitsBase2
 {
 	enum
 	{
-		WithCopy = true,
+		//WithCopy = true,
 		WithNetSerializer = true,
-		WithIdentical = true,
+		//WithIdentical = true,
 		WithNetSharedSerialization = true,
 	};
 };

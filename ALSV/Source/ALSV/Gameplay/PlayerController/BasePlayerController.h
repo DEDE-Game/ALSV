@@ -7,6 +7,7 @@
 
 #include "BasePlayerController.generated.h"
 
+#define EnbaleFastArrayTest 0
 
 UCLASS(BlueprintType, Blueprintable)
 class ABasePlayerController : public APlayerController
@@ -49,7 +50,7 @@ public:
 	UTestReplicationComp *TestReplicationComp1;
 
 	UPROPERTY()
-		UTestReplicationComp* TestReplicationComp2;
+	UTestReplicationComp* TestReplicationComp2;
 
 public:
 	UPROPERTY(ReplicatedUsing = OnRep_ControllerNumberChanged)
@@ -57,21 +58,11 @@ public:
 	UFUNCTION()
 		void OnRep_ControllerNumberChanged();
 
-	UPROPERTY(ReplicatedUsing = OnRep_ExampleFastArray)
-		FExampleArray ExampleFastArray;
-	UFUNCTION()
-		void OnRep_ExampleFastArray();
+ 	//UPROPERTY(ReplicatedUsing = OnRep_ExampleFastArray)
+ 		//FExampleArray ExampleFastArray;
+	
 
 
-	UPROPERTY(ReplicatedUsing = OnRep_ExampleStruct)
-		FExampleStruct ExampleStruct;
-	UFUNCTION()
-		void OnRep_ExampleStruct();
-
-	UPROPERTY(ReplicatedUsing = OnRep_ExampleStruct1)
-		FExampleStruct1 ExampleStruct1;
-	UFUNCTION()
-		void OnRep_ExampleStruct1();
 
 public:
 	UPROPERTY(ReplicatedUsing = OnRep_TestObj)
@@ -99,6 +90,20 @@ public:
 
 	UPROPERTY(Replicated)
 		FMyTestData MyTestDataArray[3];
+
+			UFUNCTION()
+		void OnRep_ExampleFastArray();
+
+
+	UPROPERTY(ReplicatedUsing = OnRep_ExampleStruct)
+		FExampleStruct ExampleStruct;
+	UFUNCTION()
+		void OnRep_ExampleStruct();
+
+	UPROPERTY(ReplicatedUsing = OnRep_ExampleStruct1)
+		FExampleStruct1 ExampleStruct1;
+	UFUNCTION()
+		void OnRep_ExampleStruct1();
 
 
 public:

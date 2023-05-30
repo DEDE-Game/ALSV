@@ -179,7 +179,8 @@ void ABasePlayerController::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>
 
 	FDoRepLifetimeParams SharedParams;
 	SharedParams.bIsPushBased = true;
-	DOREPLIFETIME_WITH_PARAMS_FAST(ABasePlayerController, ExampleFastArray, SharedParams);
+	//DOREPLIFETIME_WITH_PARAMS_FAST(ABasePlayerController, ExampleFastArray, SharedParams);
+
 	DOREPLIFETIME_WITH_PARAMS_FAST(ABasePlayerController, ExampleStruct, SharedParams);
 	DOREPLIFETIME_WITH_PARAMS_FAST(ABasePlayerController, ExampleStruct1, SharedParams);
 }
@@ -212,6 +213,7 @@ void ABasePlayerController::TestSparseArray()
 
 void ABasePlayerController::TestFastArray()
 {
+/*
 	++ExampleStruct.ExampleIntProperty;
 	MARK_PROPERTY_DIRTY_FROM_NAME(ABasePlayerController, ExampleStruct, this);
 
@@ -243,6 +245,7 @@ void ABasePlayerController::TestFastArray()
 			bAddFastArrayItem = true;
 		}
 	}
+*/
 }
 
 void ABasePlayerController::OnRep_ControllerNumberChanged()
